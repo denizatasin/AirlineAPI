@@ -39,7 +39,7 @@
 
 1. Repoyu klonlayın:
    ```
-   git clone https://github.com/KULLANICI_ADIN/AirlineAPI.git
+   git clone https://github.com/denizatasin/AirlineAPI.git
    cd AirlineAPI
    ```
 
