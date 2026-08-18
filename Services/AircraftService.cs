@@ -44,7 +44,8 @@ public class AircraftService : IAircraftService
         }
         if(!IsValidModel(aircraft.Manufacturer,aircraft.Model))
         {
-            throw new InvalidOperationException($"Invalid model '{aircraft.Model}' for manufacturer '{aircraft.Manufacturer}'.");
+            string validModelsMessage = ValidModelsByManufacturer.TryGetValue(aircraft.Manufacturer, out var validModels)? string.Join(", ", validModels) : "unknown manufacturer";
+            throw new InvalidOperationException($"Invalid model '{aircraft.Model}' for manufacturer '{aircraft.Manufacturer}'. Proper models for {aircraft.Manufacturer}: {validModelsMessage}");
         }
         bool exists=await _context.Aircrafts.AnyAsync(a=>a.TailNumber==aircraft.TailNumber);
         if(exists)

@@ -16,7 +16,8 @@ public class TicketService : ITicketService
         var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==flightId);
         if(flight==null)
         {
-            var availableFlights=await _context.Flights.Include(f=>f.FlightSchedule).OrderBy(f=>f.Date).ThenBy(f=>f.Id).ToListAsync();
+            var availableFlights=await _context.Flights.Include(f=>f.FlightSchedule).Where(f=>f.Date>=DateOnly.FromDateTime(DateTime.Now)).OrderBy(f=>f.Date).ThenBy(f=>f.Id).ToListAsync();
+            availableFlights=availableFlights.Where(f=>GetFlightDateTime(f)>=DateTime.Now).ToList();
             if(!availableFlights.Any())
             {
                 return (false, $"Flight with ID '{flightId}' not found. There are currently no flights available in the system.");
