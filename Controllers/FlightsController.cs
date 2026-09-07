@@ -17,9 +17,10 @@ namespace AirlineAPI.Controllers;
 public class FlightsController : ControllerBase
 {
     private readonly IFlightService _flightService;
-
-    public FlightsController(IFlightService flightService)
+    private readonly ILogger<FlightsController> _logger;
+    public FlightsController(IFlightService flightService,ILogger<FlightsController> logger)
     {
+        _logger=logger;
         _flightService=flightService;
     }
     [AllowAnonymous]
@@ -28,7 +29,6 @@ public class FlightsController : ControllerBase
     {
         var flights= await _flightService.GetAllFlightsAsync();
         var response=flights.Select(flight=>flight.ToResponse()).ToList();
-        
         return Ok(response);
     }
     [AllowAnonymous]
@@ -38,6 +38,7 @@ public class FlightsController : ControllerBase
         var flight=await _flightService.GetFlightByIdAsync(id);
         if(flight==null)
         {
+            _logger.LogWarning("Flight ID {FlightId} not found.",id);
             return NotFound();
         }
         var response=flight.ToResponse();
@@ -53,13 +54,16 @@ public class FlightsController : ControllerBase
             bool added=await _flightService.AddFlightAsync(flight);
             if(!added)
             {
+                _logger.LogWarning("Flight creation failed. Schedule ID {FlightScheduleId} on Date {Date} already exists.",flight.FlightScheduleId,flight.Date);
                 return Conflict($"FlightScheduleId '{flight.FlightScheduleId}' and Date '{flight.Date}' already exists.");
             }
             var createdFlight=await _flightService.GetFlightByIdAsync(flight.Id);
+            _logger.LogInformation("Flight ID {FlightId} created via HTTP POST.",flight.Id);
             return CreatedAtAction(nameof(GetFlight),new {id=flight.Id},createdFlight!.ToResponse()); 
         }
         catch(InvalidOperationException ex)
         {
+            _logger.LogWarning(ex,"Failed to create flight for flight schedule ID {FlightScheduleId}.",request.FlightScheduleId);
             return Conflict(ex.Message);
         }
         
@@ -73,12 +77,15 @@ public class FlightsController : ControllerBase
             bool updated=await _flightService.UpdateFlightAsync(id,request.Date);
             if(!updated)
             {
+                _logger.LogWarning("Flight update failed. Flight ID {FlightId} not found.",id);
                 return NotFound();
             }
+            _logger.LogInformation("Flight ID {FlightId} updated via HTTP PUT.",id);
             return NoContent();
         }
         catch(InvalidOperationException ex)
         {
+            _logger.LogWarning(ex,"Failed to update flight ID {FlightId}.",id);
             return Conflict(ex.Message);
         }
         
@@ -87,11 +94,21 @@ public class FlightsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteFlight(int id)
     {
-        bool deleted=await _flightService.DeleteFlightAsync(id);
-        if(!deleted)
+        try
         {
-            return NotFound();
+            bool deleted=await _flightService.DeleteFlightAsync(id);
+            if(!deleted)
+            {
+                _logger.LogWarning("Flight deletion failed. Flight ID {FlightId} not found.",id);
+                return NotFound();
+            }
+            _logger.LogInformation("Fligth ID {FlightId} deleted via HTTP DELETE.",id);
+            return NoContent();
         }
-        return NoContent();
+        catch(InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex,"Failed to delete fligt ID {FlightId}.",id);
+            return Conflict(ex.Message);
+        }
     }
 }

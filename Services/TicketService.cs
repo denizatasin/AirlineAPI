@@ -7,9 +7,11 @@ namespace AirlineAPI.Services;
 public class TicketService : ITicketService
 {
     private readonly AirlineDbContext _context;
-    public TicketService (AirlineDbContext context)
+    private readonly ILogger<TicketService> _logger;
+    public TicketService (AirlineDbContext context, ILogger<TicketService> logger)
     {
         _context=context;
+        _logger=logger;
     }
     private async Task<(bool isValid,string? errorMessage)> ValidateFlightForTicketAsync(int flightId)
     {
@@ -105,40 +107,47 @@ public class TicketService : ITicketService
     {
         await UpdateExpiredTicketStatusAsync();
         return await _context.Tickets
-                        .Include(t=>t.Flight)
-                            .ThenInclude(f=>f.FlightSchedule)
-                            .ThenInclude(fs=>fs.Aircraft)
-                        .Include(t=>t.Passenger).FirstOrDefaultAsync(t=>t.Id==id);
+            .Include(t=>t.Flight)
+                .ThenInclude(f=>f.FlightSchedule)
+                .ThenInclude(fs=>fs.Aircraft)
+            .Include(t=>t.Passenger).FirstOrDefaultAsync(t=>t.Id==id);
     }
     public async Task<bool> AddTicketAsync(Ticket ticket)
     {
         var flightValidation= await ValidateFlightForTicketAsync(ticket.FlightId);
         if(!flightValidation.isValid)
         {
+            _logger.LogWarning("Ticket purchase failed due to flight validation {Reason}", flightValidation.errorMessage);
             throw new InvalidOperationException(flightValidation.errorMessage);
         }
         var passengerValidation=await ValidatePassengerExistsAsync(ticket.PassengerId);
         if(!passengerValidation.isValid)
         {
+            _logger.LogWarning("Ticket purchase failed due to passenger validation {Reason}", passengerValidation.errorMessage);
             throw new InvalidOperationException(passengerValidation.errorMessage);
         }
         var priceValidation=await ValidatePricePaidAsync(ticket.FlightId,ticket.PricePaid);
         if(!priceValidation.isValid)
         {
+            _logger.LogWarning("Ticket purchase failed due to price validation {Reason}", priceValidation.errorMessage);
             throw new InvalidOperationException(priceValidation.errorMessage);
         }
         var existingNumbers = await _context.Tickets
-        .Select(t => t.TicketNumber)
-        .ToListAsync();
+            .Select(t => t.TicketNumber)
+            .ToListAsync();
 
         int nextSerial = existingNumbers.Any()
-        ? existingNumbers.Max(tn => int.Parse(tn.Substring(tn.Length - 4))) + 1
-        : 1;
+            ? existingNumbers.Max(tn => int.Parse(tn.Substring(tn.Length - 4))) + 1
+            : 1;
 
         ticket.TicketNumber = $"235-{DateTime.Now:HHmmss}{nextSerial:D4}";
 
         _context.Tickets.Add(ticket);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Ticket created succesfully: {TicketNumber} for Passenger {PassengerId} on Flight {FlightId}"
+            ,ticket.TicketNumber, ticket.PassengerId, ticket.FlightId);
+        
         return true;
     }
     public async Task<bool> UpdateTicketAsync(int id,TicketStatus newStatus)
@@ -146,10 +155,14 @@ public class TicketService : ITicketService
         var existingTicket=await _context.Tickets.FirstOrDefaultAsync(t=>t.Id==id);
         if(existingTicket==null)
         {
+            _logger.LogWarning("Ticket update failed. Ticket ID {TicketId} not found.", id);
             return false;
         }
+        var oldStatus=existingTicket.Status;
         existingTicket.Status=newStatus;
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Ticket ID {TicketId} status changed from {OldStatus} to {NewStatus}", id, oldStatus, newStatus);
         return true;
     }
     public async Task<bool> DeleteTicketAsync(int id)
@@ -157,10 +170,13 @@ public class TicketService : ITicketService
         var ticket=await _context.Tickets.FindAsync(id);
         if(ticket==null)
         {
+            _logger.LogWarning("Ticket deletion failed. Ticket ID {TicketId} not found.", id);
             return false;
         }
         _context.Tickets.Remove(ticket);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Ticket ID {TicketId} (Number:{TicketNumber}) deleted by admin.", id, ticket.TicketNumber);
         return true;
     }
 }

@@ -12,8 +12,10 @@ namespace AirlineAPI.Controllers;
 public class PassengersController: ControllerBase
 {
     private readonly IPassengerService _passengerService;
-    public PassengersController(IPassengerService passengerService)
+    private readonly ILogger<PassengersController> _logger;
+    public PassengersController(IPassengerService passengerService,ILogger<PassengersController> logger)
     {
+        _logger=logger;
         _passengerService=passengerService;
     }
     private int? GetCurrentPassengerId()
@@ -26,10 +28,18 @@ public class PassengersController: ControllerBase
     public async Task<ActionResult<PassengerResponse>> GetMyProfile()
     {
         var currentPassengerId = User.GetPassengerId();
-        if (currentPassengerId == null) return Unauthorized();
+        if (currentPassengerId == null)
+        {
+            _logger.LogWarning("Unauthorized access to passenger profile. No PassengerId claim found.");
+            return Unauthorized();
+        } 
 
         var passenger = await _passengerService.GetPassengerByIdAsync(currentPassengerId.Value);
-        if (passenger == null) return NotFound();
+        if (passenger == null)
+        {
+            _logger.LogWarning("Passenger profile not found for PassengerId {PassengerId}",currentPassengerId);
+            return NotFound();
+        } 
 
         return Ok(passenger.ToResponse());
     }
@@ -48,6 +58,7 @@ public class PassengersController: ControllerBase
         var passenger=await _passengerService.GetPassengerByIdAsync(id);
         if(passenger==null)
         {
+            _logger.LogWarning("Passenger ID {PassengerId} not found.",id);
             return NotFound();
         }
         return Ok(passenger.ToResponse());
@@ -58,6 +69,7 @@ public class PassengersController: ControllerBase
     {
         var passenger=request.ToEntity();
         await _passengerService.AddPassengerAsync(passenger);
+        _logger.LogInformation("Passenger ID {PassengerId} created via HTTP POST.",passenger.Id);
         return CreatedAtAction(nameof(GetPassenger),new{id=passenger.Id},passenger.ToResponse());
     }
     [Authorize(Roles="Admin")]
@@ -68,8 +80,10 @@ public class PassengersController: ControllerBase
         bool updated=await _passengerService.UpdatePassengerAsync(id,passenger);
         if(!updated)
         {
+            _logger.LogWarning("Passenger update failed. ID {PassengerId} not found.",id);
             return NotFound();
         }
+        _logger.LogInformation("Passenger ID {PassengerId} updated via HTTP PUT.",id);
         return NoContent();
     }
     [Authorize(Roles="Admin")]
@@ -79,8 +93,10 @@ public class PassengersController: ControllerBase
         bool deleted=await _passengerService.DeletePassengerAsync(id);
         if(!deleted)
         {
+            _logger.LogWarning("Passenger deletion failed. ID {PassengerId} not found.", id);
             return NotFound();
         }
+        _logger.LogInformation("Passenger ID {PassengerId} deleted via HTTP DELETE.", id);
         return NoContent();
     }
 }

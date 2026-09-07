@@ -14,8 +14,10 @@ namespace AirlineAPI.Controllers;
 public class TicketsController:ControllerBase
 {
     private readonly ITicketService _ticketService;
-    public TicketsController(ITicketService ticketService)
+    private readonly ILogger<TicketsController> _logger;
+    public TicketsController(ITicketService ticketService, ILogger<TicketsController> logger)
     {
+        _logger=logger;
         _ticketService=ticketService;
     } 
     [Authorize]
@@ -28,6 +30,7 @@ public class TicketsController:ControllerBase
             var myPassengerId=User.GetPassengerId();
             if(myPassengerId==null)
             {
+                _logger.LogWarning("User {UserId} attempted to view tickets without an associated passenger profile.", User.Identity?.Name);
                 return StatusCode(403, "Your account is not linked to a passenger profile.");
             }
             tickets=tickets.Where(t=>t.PassengerId==myPassengerId.Value).ToList();
@@ -47,6 +50,7 @@ public class TicketsController:ControllerBase
         
         if(!User.isAdmin() && !User.OwnsPassenger(ticket.PassengerId))
         {
+            _logger.LogWarning("Unauthorized access attempt. User tried to view Ticket ID {TicketId} belonging to Passenger {PassengerId}", id, ticket.PassengerId);
             return StatusCode(403, "You can only view your own tickets.");
         }
         return Ok(ticket.ToResponse());
@@ -58,6 +62,7 @@ public class TicketsController:ControllerBase
         
         if(!User.isAdmin() && !User.OwnsPassenger(request.PassengerId))
         {
+            _logger.LogWarning("Unauthorized ticket creation attempt for Passenger ID {PassengerId}", request.PassengerId);
             return StatusCode(403, "You can only purchase tickets for yourself.");
         }
         try
@@ -87,6 +92,7 @@ public class TicketsController:ControllerBase
             
             if(!User.OwnsPassenger(existingTicket.PassengerId))
             {
+                _logger.LogWarning("Unauthorized cancellation attempt for Ticket ID {TicketId}", id);
                 return StatusCode(403, "You can only cancel your own tickets.");
             }
             if(request.Status!=TicketStatus.Cancelled)

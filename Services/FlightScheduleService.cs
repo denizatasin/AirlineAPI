@@ -7,8 +7,10 @@ namespace AirlineAPI.Services;
 public class FlightScheduleService : IFlightScheduleService
 {
     private readonly AirlineDbContext _context;
-    public FlightScheduleService(AirlineDbContext context)
+    private readonly ILogger<FlightScheduleService> _logger;
+    public FlightScheduleService(AirlineDbContext context, ILogger<FlightScheduleService> logger)
     {
+        _logger=logger;
         _context=context;
     }
     private async Task<(bool Exists,string? errorMessage)> AircraftExists(int aircraftId)
@@ -95,42 +97,57 @@ public class FlightScheduleService : IFlightScheduleService
     }
     public async Task<FlightSchedule?> GetFlightScheduleByIdAsync(int id)
     {
-        return await _context.FlightSchedules.Include(fs=>fs.Aircraft).Include(fs=>fs.Destination).FirstOrDefaultAsync(fs=>fs.Id==id);
+        var schedule = await _context.FlightSchedules.Include(fs=>fs.Aircraft).Include(fs=>fs.Destination).FirstOrDefaultAsync(fs=>fs.Id==id);
+        if(schedule==null)
+        {
+            _logger.LogWarning("FlightSchedule query failed. Schedule ID {ScheduleId} not found.", id);
+        }    
+        return schedule;
     }
     public async Task<bool> AddFlightScheduleAsync(FlightSchedule schedule)
     {
         bool exists=await _context.FlightSchedules.AnyAsync(s=>s.FlightNumber==schedule.FlightNumber);
         if(exists)
         {
+            _logger.LogWarning("FlightSchedule creation failed. FlightNumber {FlightNumber} already exists.", schedule.FlightNumber);
             return false;
         }
         var aircraftExistsCheck=await AircraftExists(schedule.AircraftId);
         if(!aircraftExistsCheck.Exists)
         {
+            _logger.LogWarning("FlightSchedule creation failed. Aircraft ID {AircraftId} does not exists.", schedule.AircraftId);
             throw new InvalidOperationException(aircraftExistsCheck.errorMessage);
         }
         var routeCheck=await IsValidFlightNumberForRoute(schedule.FlightNumber,schedule.Departure,schedule.Arrival);
         if(!routeCheck.IsValid)
         {
+            _logger.LogWarning("FlightSchedule creation failed. Route validation error: {Reason}", routeCheck.ErrorMessage);
             throw new InvalidOperationException(routeCheck.ErrorMessage);
         }
+
         schedule.DestinationId=routeCheck.MatchedDestination!.Id;
+        
         var aircraftCheck= await IsAircraftAssignedToDifferentCity(schedule.AircraftId,routeCheck.MatchedDestination.City,null);
         if(!aircraftCheck.IsValid)
         {
+            _logger.LogWarning("FlightSchedule creation failed. Aircraft route collision: {Reason}",aircraftCheck.errorMessage);
             throw new InvalidOperationException(aircraftCheck.errorMessage);
         }
         if(!IsValidDuration(schedule.Duration))
         {
+            _logger.LogWarning("FlightSchedule creation failed. Invalid duration: {Duration}",schedule.Duration);
             throw new InvalidOperationException($"Flight duration is {schedule.Duration}. It must be at least 30 minutes.");
         }
         if(!IsValidPrice(schedule.Price))
         {
+            _logger.LogWarning("FlightSchedule creation failed. Invalid price: {Price}",schedule.Price);
             throw new InvalidOperationException($"Price is {schedule.Price}. It must be between 1000 and 50000.");
         }
         
         _context.FlightSchedules.Add(schedule);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("FlightSchedule created. ID: {FlightScheduleId}, FlightNumber: {FlightNumber}, Route: {Departure}-{Arrival}",schedule.Id,schedule.FlightNumber,schedule.Departure,schedule.Arrival);
         return true;
     }
     public async Task<bool> UpdateFlightScheduleAsync(int id, FlightSchedule updatedFlightSchedule)
@@ -138,29 +155,35 @@ public class FlightScheduleService : IFlightScheduleService
         var existingSchedule = await _context.FlightSchedules.FirstOrDefaultAsync(us => us.Id == id);
         if (existingSchedule == null)
         {
+            _logger.LogWarning("FlightSchedule update failed. Schedule ID {FlightScheduleId} not found.",id);
             return false;
         }
         var aircraftExistsCheck=await AircraftExists(updatedFlightSchedule.AircraftId);
         if(!aircraftExistsCheck.Exists)
         {
+            _logger.LogWarning("FlightSchedule update failed. Aircraft ID {AircraftId} does not exists.",updatedFlightSchedule.AircraftId);
             throw new InvalidOperationException(aircraftExistsCheck.errorMessage);
         }
         var routeCheck=await IsValidFlightNumberForRoute(updatedFlightSchedule.FlightNumber,updatedFlightSchedule.Departure,updatedFlightSchedule.Arrival);
         if (!routeCheck.IsValid)
         {
+            _logger.LogWarning("FlightSchedule update failed. Route validation error: {Reason}",routeCheck.ErrorMessage);
             throw new InvalidOperationException(routeCheck.ErrorMessage);
         } 
         var aircraftCheck=await IsAircraftAssignedToDifferentCity(updatedFlightSchedule.AircraftId, routeCheck.MatchedDestination!.City,id);
         if (!aircraftCheck.IsValid)
         {
+            _logger.LogWarning("FlightSchedule update failed. Aircraft route collision: {Reason}",aircraftCheck.errorMessage);
             throw new InvalidOperationException(aircraftCheck.errorMessage);
         }
         if(!IsValidDuration(updatedFlightSchedule.Duration))
         {
+            _logger.LogWarning("FlightSchedule update failed. Invalid duration: {Duration}",updatedFlightSchedule.Duration);
             throw new InvalidOperationException($"Flight duration {updatedFlightSchedule.Duration} must be at least 30 minutes.");
         }
         if(!IsValidPrice(updatedFlightSchedule.Price))
         {
+            _logger.LogWarning("FlightSchedule update failed. Invalid price: {Price}",updatedFlightSchedule.Price);
             throw new InvalidOperationException($"Price {updatedFlightSchedule.Price} must be between 1000 and 50000.");
         }
 
@@ -175,6 +198,8 @@ public class FlightScheduleService : IFlightScheduleService
         existingSchedule.DestinationId = routeCheck.MatchedDestination.Id;
 
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("FlightSchedule ID {FlightScheduleId} updated. FlightNumber: {FlightNumber}",id,updatedFlightSchedule.FlightNumber);
         return true;
     }
     public async Task<bool> DeleteFlightScheduleAsync(int id)
@@ -182,10 +207,13 @@ public class FlightScheduleService : IFlightScheduleService
         var schedule=await _context.FlightSchedules.FindAsync(id);
         if(schedule==null)
         {
+            _logger.LogWarning("FlightSchedule deletion failed. FlightSchedule ID {FlightScheduleId} not found.",id);
             return false;
         }
         _context.FlightSchedules.Remove(schedule);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("FlightSchedule ID {FlightScheduleId} (FlightNumber: {FlightNumber}) deleted.",id,schedule.FlightNumber);
         return true;
     }
 }

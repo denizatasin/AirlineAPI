@@ -16,8 +16,10 @@ namespace AirlineAPI.Controllers;
 public class AircraftsController : ControllerBase
 {
     private readonly IAircraftService _aircraftService;
-    public AircraftsController(IAircraftService aircraftService)
+    private readonly ILogger<AircraftsController> _logger;
+    public AircraftsController(IAircraftService aircraftService,ILogger<AircraftsController> logger)
     {
+        _logger=logger;
         _aircraftService=aircraftService;
     }
     [HttpGet]
@@ -33,6 +35,7 @@ public class AircraftsController : ControllerBase
         var aircraft=await _aircraftService.GetAircraftByIdAsync(id);
         if(aircraft==null)
         {
+            _logger.LogWarning("Aircraft with ID {AircraftId} was not found.",id);
             return NotFound();
         }
         return Ok(aircraft.ToResponse());
@@ -46,12 +49,15 @@ public class AircraftsController : ControllerBase
             bool added=await _aircraftService.AddAircraftAsync(aircraft);
             if(!added)
             {
+                _logger.LogWarning("Failed to add aircraft. Tail number '{TailNumber}' already exists.",aircraft.TailNumber);
                 return Conflict($"Aircraft with Tail number '{aircraft.TailNumber}' already exists.");
             }
+            _logger.LogInformation("Aircraft with ID {AircraftId} created via HTTP POST.",aircraft.Id);
             return CreatedAtAction(nameof(GetAircraft),new{id=aircraft.Id}, aircraft.ToResponse());
         }
         catch(InvalidOperationException ex)
         {
+            _logger.LogWarning(ex,"Invalid operation during aircraft addition.");
             return Conflict(ex.Message);
         }
         
@@ -65,12 +71,15 @@ public class AircraftsController : ControllerBase
             bool updated=await _aircraftService.UpdateAircraftAsync(id,aircraft);
             if(!updated)
             {
+                _logger.LogWarning("Aircraft update failed. Aircraft ID {AircraftId} not found.",id);
                 return NotFound();
             }
+            _logger.LogInformation("Aircraft ID {AircraftId} updated via HTTP PUT.",id);
             return NoContent();
         }
         catch(InvalidOperationException ex)
         {
+            _logger.LogWarning(ex,"Invalid operation during aircraft update for ID {AircraftId}.",id);
             return Conflict(ex.Message);
         }
         
@@ -83,12 +92,15 @@ public class AircraftsController : ControllerBase
             bool deleted=await _aircraftService.DeleteAircraftAsync(id);
             if(!deleted)
             {
+                _logger.LogWarning("Aircraft deletion failed. Aircraft ID {AircraftId} not found.",id);
                 return NotFound();
             }
+            _logger.LogInformation("Aircraft ID {AircraftId} deleted via HTTP DELETE.",id);
             return NoContent();
         }
         catch(InvalidOperationException ex)
         {
+            _logger.LogWarning(ex,"Invalid operation during aircraft deletion for ID {AircraftId}.",id);
             return Conflict(ex.Message);
         }
     }

@@ -12,9 +12,11 @@ namespace AirlineAPI.Services;
 public class FlightService : IFlightService
 {
     private readonly AirlineDbContext _context;
-    public FlightService(AirlineDbContext context)
+    private readonly ILogger<FlightService> _logger;
+    public FlightService(AirlineDbContext context, ILogger<FlightService> logger)
     {
         _context=context;
+        _logger=logger;
     }
     private static bool IsValidFlightDate(DateOnly date)
     {
@@ -45,26 +47,36 @@ public class FlightService : IFlightService
     }
     public async Task<Flight?> GetFlightByIdAsync(int id)
     {
-        return await _context.Flights.Include(f=>f.FlightSchedule).FirstOrDefaultAsync(f=>f.Id==id);
+        var flight= await _context.Flights.Include(f=>f.FlightSchedule).FirstOrDefaultAsync(f=>f.Id==id);
+        if(flight==null)
+        {
+            _logger.LogWarning("Flight query failed. Flight ID {FlightId} not found.", id);
+        }
+        return flight;
     }
     public async Task<bool> AddFlightAsync(Flight flight)
     {
         bool exists=await _context.Flights.AnyAsync(f=>f.FlightScheduleId==flight.FlightScheduleId && f.Date==flight.Date);
         if(exists)
         {
+            _logger.LogWarning("Flight creation failed. Flight already exists for Schedule ID {FlightScheduleId} on Date {Date}", flight.FlightScheduleId, flight.Date);
             return false;
         }
         var scheduleValidation=await ValidateFlightScheduleExistsAsync(flight.FlightScheduleId);
         if(!scheduleValidation.isValid)
         {
+            _logger.LogWarning("Flight creation failed. Schedule validation error {Reason}",scheduleValidation.errorMessage);
             throw new InvalidOperationException(scheduleValidation.errorMessage);
         }
         if(!IsValidFlightDate(flight.Date))
         {
+            _logger.LogWarning("Flight creation failed. Cannot create a flight with past date: {Date}",flight.Date);
             throw new InvalidOperationException($"Cannot create a flight with a past date ({flight.Date}). Date must be today or later.");
         }
         _context.Flights.Add(flight);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Flight created successfully. ID: {FlightId}, ScheduleID: {ScheduleId}, Date: {Date}", flight.Id, flight.FlightScheduleId, flight.Date);
         return true;
     }
     public async Task<bool> UpdateFlightAsync(int id,DateOnly newDate)
@@ -72,19 +84,25 @@ public class FlightService : IFlightService
         var existingFlight=await _context.Flights.FirstOrDefaultAsync(f=>f.Id==id);
         if(existingFlight==null)
         {
+            _logger.LogWarning("Flight update failed. Flight ID {FlightId} not found.",id);
             return false;
         }
         var scheduleValidation=await ValidateFlightScheduleExistsAsync(existingFlight.FlightScheduleId);
         if(!scheduleValidation.isValid)
         {
+            _logger.LogWarning("Flight update failed. Schedule validation error: {Reason}",scheduleValidation.errorMessage);
             throw new InvalidOperationException(scheduleValidation.errorMessage);
         }
         if(!IsValidFlightDate(newDate))
         {
+            _logger.LogWarning("Flight update failed. Invalid past date: {Date}",newDate);
             throw new InvalidOperationException($"Cannot update a flight with a past date ({newDate}). Date must be today or later.");
         }
+        var oldDate=existingFlight.Date;
         existingFlight.Date=newDate;
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Flight ID {FlightId} date changed from {OldDate} to {NewDate}", id, oldDate, newDate);
         return true;
     }
     public async Task<bool> DeleteFlightAsync(int id)
@@ -92,10 +110,13 @@ public class FlightService : IFlightService
         var flight=await _context.Flights.FindAsync(id);
         if(flight==null)
         {
+            _logger.LogWarning("Flight deletion failed. Flight ID {FlightId} not found.", id);
             return false;
         }
         _context.Flights.Remove(flight);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Flight ID {FlightId} deleted", id);
         return true;
     }
 }

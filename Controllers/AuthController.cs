@@ -18,8 +18,10 @@ public class AuthController: ControllerBase
     private readonly AirlineDbContext _context;
     private readonly PasswordHasher<User> _passwordHasher=new();
     private readonly IConfiguration _configuration;
-    public AuthController(AirlineDbContext context, IConfiguration configuration)
+    private readonly ILogger<AuthController> _logger;
+    public AuthController(AirlineDbContext context, IConfiguration configuration, ILogger<AuthController> logger)
     {
+        _logger=logger;
         _context=context;
         _configuration=configuration;
     }
@@ -53,11 +55,13 @@ public class AuthController: ControllerBase
     {
         if(!Enum.TryParse<UserRole>(request.Role,true,out var role))
         {
+            _logger.LogWarning("Registration failed. Invalid role specified: {Role}",request.Role);
             return BadRequest($"Invalid role {request.Role}. Valid roles: Admin, Passenger.");
         }
         bool exists=await _context.Users.AnyAsync(u=>u.Username==request.Username);
         if(exists)
         {
+            _logger.LogWarning("Registration failed. Username {Username} already exists.",request.Username);
             return Conflict($"Username {request.Username} is already taken.");
         }
         var user=new User
@@ -71,6 +75,7 @@ public class AuthController: ControllerBase
         {
             if(string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
             {
+                _logger.LogWarning("Registration failed. Missing first name or last name for passenger user: {Username}",request.Username);
                 return BadRequest("FirstName and LastName are required for Passenger role.");
             }
             var passenger=new Passenger
@@ -86,6 +91,7 @@ public class AuthController: ControllerBase
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
+        _logger.LogInformation("User '{Username}' registered successfully with role: '{Role}'.",user.Username,user.Role);
         return Ok("User registered successfully.");
     }
     [HttpPost("login")]
@@ -94,14 +100,17 @@ public class AuthController: ControllerBase
         var user=await _context.Users.FirstOrDefaultAsync(u=>u.Username==request.Username);
         if(user==null)
         {
+            _logger.LogWarning("Login failed. User '{Username}' not found.",request.Username);
             return Unauthorized("Invalid username or password.");
         }
         var result=_passwordHasher.VerifyHashedPassword(user, user.PasswordHash,request.Password);
         if(result==PasswordVerificationResult.Failed)
         {
+            _logger.LogWarning("Login failed. Incorrect passfor for user '{Username}'.",request.Username);
             return Unauthorized("Invalid username or password.");
         }
         var token = GenerateJwtToken(user);
+        _logger.LogInformation("User '{Username}' logined successfully.",user.Username);
         return Ok(new { token });
     }
 }

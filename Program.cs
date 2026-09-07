@@ -1,59 +1,95 @@
-using AirlineAPI.Models;
-using AirlineAPI.Services;
 using AirlineAPI.Data;
-using Microsoft.EntityFrameworkCore;
-using System.Text;
+using AirlineAPI.Middlewares;
+using AirlineAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
+using System.Text;
 
-var builder = WebApplication.CreateBuilder(args);
+// Serilog Bootstrap Logger (Uygulama kalkana kadar geçici loglama sağlar)
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();
-builder.Services.AddSwaggerGen();
-builder.Services.AddScoped<IFlightService,FlightService>();
-builder.Services.AddScoped<IAircraftService,AircraftService>();
-builder.Services.AddScoped<IFlightScheduleService,FlightScheduleService>();
-builder.Services.AddScoped<IPassengerService,PassengerService>();
-builder.Services.AddScoped<ITicketService,TicketService>();
-builder.Services.AddScoped<IDestinationService,DestinationService>();
-builder.Services.AddDbContext<AirlineDbContext>(options=>
+try
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
-});
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options=>
-{
-    options.TokenValidationParameters=new TokenValidationParameters
+    Log.Information("AirlineAPI yapılandırılıyor...");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Serilog yapılandırmayı appsettings.json üzerinden okur
+    builder.Host.UseSerilog((context, services, configuration) => configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext());
+
+    builder.Services.AddControllers();
+    builder.Services.AddOpenApi();
+    builder.Services.AddSwaggerGen();
+
+    // Servis Kayıtları
+    builder.Services.AddScoped<IFlightService, FlightService>();
+    builder.Services.AddScoped<IAircraftService, AircraftService>();
+    builder.Services.AddScoped<IFlightScheduleService, FlightScheduleService>();
+    builder.Services.AddScoped<IPassengerService, PassengerService>();
+    builder.Services.AddScoped<ITicketService, TicketService>();
+    builder.Services.AddScoped<IDestinationService, DestinationService>();
+
+    // DbContext Kaydı
+    builder.Services.AddDbContext<AirlineDbContext>(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
-    };
-});
-builder.Services.AddAuthorization();
+        options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    });
 
-var app = builder.Build();
+    // JWT Kimlik Doğrulama
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                ValidAudience = builder.Configuration["Jwt:Audience"],
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+            };
+        });
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
+    builder.Services.AddAuthorization();
 
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    var app = builder.Build();
+
+    // 1. Tüm hataları yakalaması için Global Exception Middleware en üstte olmalı
+    app.UseMiddleware<GlobalExceptionMiddleware>();
+
+    // 2. HTTP istek loglaması
+    app.UseSerilogRequestLogging();
+
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapOpenApi();
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    app.UseHttpsRedirection();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    Log.Information("AirlineAPI başlatılıyor...");
+    app.Run();
 }
-
-app.UseHttpsRedirection();//middleware to redirect HTTP requests to HTTPS
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapControllers();
-app.Run();
-
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Uygulama beklenmeyen bir hata nedeniyle başlatılamadı!");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
