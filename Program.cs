@@ -4,6 +4,7 @@ using AirlineAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using Serilog;
 using System.Text;
 
@@ -26,7 +27,23 @@ try
 
     builder.Services.AddControllers();
     builder.Services.AddOpenApi();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddSwaggerGen(options =>
+    {
+        // Swagger'a "Bearer token ile doğrulama var" bilgisini veriyoruz
+        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "Login'den dönen token'ı yapıştırın."
+        });
+
+        // Bu şemayı tüm endpoint'lere uyguluyoruz
+        options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+        });
+    });
 
     // Servis Kayıtları
     builder.Services.AddScoped<IFlightService, FlightService>();
