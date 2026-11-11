@@ -113,6 +113,12 @@ public class FlightService : IFlightService
             _logger.LogWarning("Flight deletion failed. Flight ID {FlightId} not found.", id);
             return false;
         }
+        int ticketCount=await _context.Tickets.CountAsync(t=>t.FlightId==id);
+        if(ticketCount>0)
+        {
+            _logger.LogWarning("Flight deletion failed. Flight ID {FlightId} has {TicketCount} ticket(s).",id,ticketCount);
+            throw new InvalidOperationException($"Flight with ID {id} cannot be deleted because {ticketCount} ticket(s) exist for it.");
+        }
         _context.Flights.Remove(flight);
         await _context.SaveChangesAsync();
 
