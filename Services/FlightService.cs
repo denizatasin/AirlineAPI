@@ -119,4 +119,42 @@ public class FlightService : IFlightService
         _logger.LogInformation("Flight ID {FlightId} deleted", id);
         return true;
     }
+        public async Task<int> GenerateFlightsAsync(DateOnly startDate,int days)
+    {
+        var schedules=await _context.FlightSchedules.AsNoTracking().ToListAsync();
+        var endDate=startDate.AddDays(days-1);
+        var existingFlights=await _context.Flights
+            .Where(f=>f.Date>=startDate && f.Date<=endDate)
+            .Select(f=>new{f.FlightScheduleId,f.Date})
+            .ToListAsync();
+        var existingKeys=existingFlights.Select(f=>(f.FlightScheduleId,f.Date)).ToHashSet();
+
+        var now=DateTime.Now;
+        var newFlights=new List<Flight>();
+        for(int i=0;i<days;i++)
+        {
+            var date=startDate.AddDays(i);
+            foreach(var schedule in schedules)
+            {
+                if(existingKeys.Contains((schedule.Id,date)))
+                {
+                    continue;
+                }
+                var departure=date.ToDateTime(TimeOnly.FromTimeSpan(schedule.DepartureTime));
+                if(departure<now)
+                {
+                    continue;
+                }
+                newFlights.Add(new Flight{FlightScheduleId=schedule.Id,Date=date});
+            }
+        }
+        if(newFlights.Count>0)
+        {
+            _context.Flights.AddRange(newFlights);
+            await _context.SaveChangesAsync();
+        }
+
+        _logger.LogInformation("Flights generated. Created: {Created}, Start date: {StartDate}, Days: {Days}",newFlights.Count,startDate,days);
+        return newFlights.Count;
+    }
 }

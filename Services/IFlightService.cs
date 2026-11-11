@@ -13,4 +13,5 @@ public interface IFlightService
     Task<bool> AddFlightAsync(Flight flight);
     Task<bool> UpdateFlightAsync(int id,DateOnly newDate);
     Task<bool> DeleteFlightAsync(int id);
+    Task<int> GenerateFlightsAsync(DateOnly startDate,int days);
 }

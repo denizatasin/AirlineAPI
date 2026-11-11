@@ -111,4 +111,13 @@ public class FlightsController : ControllerBase
             return Conflict(ex.Message);
         }
     }
+    [Authorize(Roles ="Admin")]
+    [HttpPost("generate")]
+    public async Task<IActionResult> GenerateFlights(GenerateFlightsRequest request)
+    {
+        var startDate=DateOnly.FromDateTime(DateTime.Now);
+        int created=await _flightService.GenerateFlightsAsync(startDate,request.Days);
+        _logger.LogInformation("{Created} flights generated for {Days} days starting {StartDate} via HTTP POST.",created,request.Days,startDate);
+        return Ok(new{created,days=request.Days,startDate});
+    }
 }
