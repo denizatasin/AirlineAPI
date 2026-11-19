@@ -41,6 +41,8 @@ public class AirlineDbContext: DbContext
             new Destination { Id = 15, City = "Bodrum", RangeStart = 2500, RangeEnd = 2513 },
             new Destination { Id = 16, City = "Trabzon", RangeStart = 2820, RangeEnd = 2825 }
         );
+        // A seat can belong to only one active ticket per flight (cancelled tickets free their seat; Status 2 = Cancelled)
+        modelBuilder.Entity<Ticket>().HasIndex(t=>new{t.FlightId,t.SeatNumber}).IsUnique().HasFilter("[SeatNumber] IS NOT NULL AND [Status] <> 2");
         modelBuilder.Entity<User>().HasIndex(u=>u.Username).IsUnique();
     }
 }

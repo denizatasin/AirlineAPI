@@ -300,6 +300,9 @@ namespace AirlineAPI.Migrations
                     b.Property<DateOnly>("PurchaseDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("SeatNumber")
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -309,9 +312,11 @@ namespace AirlineAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FlightId");
-
                     b.HasIndex("PassengerId");
+
+                    b.HasIndex("FlightId", "SeatNumber")
+                        .IsUnique()
+                        .HasFilter("[SeatNumber] IS NOT NULL AND [Status] <> 2");
 
                     b.ToTable("Tickets");
                 });

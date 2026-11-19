@@ -111,6 +111,17 @@ public class FlightsController : ControllerBase
             return Conflict(ex.Message);
         }
     }
+    [AllowAnonymous]
+    [HttpGet("{id}/seats")]
+    public async Task<ActionResult<SeatMapResponse>> GetSeatMap(int id)
+    {
+        var seatMap=await _flightService.GetSeatMapAsync(id);
+        if(seatMap==null)
+        {
+            return NotFound();
+        }
+        return Ok(seatMap);
+    }
     [Authorize(Roles ="Admin")]
     [HttpPost("generate")]
     public async Task<IActionResult> GenerateFlights(GenerateFlightsRequest request)

@@ -85,6 +85,23 @@ public class AircraftService : IAircraftService
         {
             _logger.LogWarning("Aircraft update failed. Invalid model '{Model}' for manufacturer '{Manufacturer}'", updatedAircraft.Model, updatedAircraft.Manufacturer);
             throw new InvalidOperationException($"Invalid model '{updatedAircraft.Model}' for manufacturer '{updatedAircraft.Manufacturer}'.");
+        }
+        if(existingAircraft.Model!=updatedAircraft.Model || existingAircraft.Capacity!=updatedAircraft.Capacity)
+        {
+            // The seat layout is calculated from model and capacity: seats held on upcoming flights must still exist
+            var newSeats=SeatLayoutBuilder.AllSeatNumbers(SeatLayoutBuilder.Build(updatedAircraft.Model,updatedAircraft.Capacity)).ToHashSet();
+            var today=DateOnly.FromDateTime(DateTime.Now);
+            var heldSeats=await _context.Tickets
+                .Where(t=>t.Status!=TicketStatus.Cancelled && t.SeatNumber!=null && t.Flight.Date>=today && t.Flight.FlightSchedule.AircraftId==id)
+                .Select(t=>t.SeatNumber)
+                .Distinct()
+                .ToListAsync();
+            var lostSeats=heldSeats.Where(s=>s!=null && !newSeats.Contains(s)).ToList();
+            if(lostSeats.Count>0)
+            {
+                _logger.LogWarning("Aircraft update failed. Aircraft ID {AircraftId} has upcoming tickets on seats that would not exist anymore: {Seats}", id, string.Join(", ",lostSeats));
+                throw new InvalidOperationException($"This change would remove seats that are already sold on upcoming flights ({string.Join(", ",lostSeats)}). Cancel or move those tickets first.");
+            }
         } 
         existingAircraft.Manufacturer=updatedAircraft.Manufacturer;
         existingAircraft.Model=updatedAircraft.Model;

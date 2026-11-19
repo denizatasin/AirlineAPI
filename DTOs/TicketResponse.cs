@@ -7,6 +7,7 @@ public class TicketResponse
     public string Status{get;set;}="";
     public decimal PricePaid{get;set;}
     public DateOnly PurchaseDate{get;set;}
+    public string? SeatNumber{get;set;}
     public PassengerResponse Passenger{get;set;}=null!;
     public FlightResponse Flight{get;set;}=null!;
 }

@@ -70,6 +70,39 @@ public class TicketService : ITicketService
         }
         return(true,null);
     }
+    // Checks the requested seat (or picks a random free one) and writes it into the ticket
+    private async Task<(bool isValid,string? errorMessage)> AssignSeatAsync(Ticket ticket)
+    {
+        var aircraft=await _context.Flights.Where(f=>f.Id==ticket.FlightId).Select(f=>f.FlightSchedule.Aircraft).FirstAsync();
+        var allSeats=SeatLayoutBuilder.AllSeatNumbers(SeatLayoutBuilder.Build(aircraft.Model,aircraft.Capacity));
+        var activeSeats=await _context.Tickets.Where(t=>t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled).Select(t=>t.SeatNumber).ToListAsync();
+        var choice=SeatLayoutBuilder.ChooseSeat(allSeats,activeSeats.Where(s=>s!=null).Select(s=>s!),ticket.SeatNumber);
+        if(choice.error!=null)
+        {
+            return (false,choice.error);
+        }
+        ticket.SeatNumber=choice.seat;
+        return (true,null);
+    }
+    // A cancelled ticket can only come back if the flight still has room and its seat is still free
+    private async Task<(bool isValid,string? errorMessage)> ValidateReactivationAsync(Ticket ticket)
+    {
+        int capacity=await _context.Flights.Where(f=>f.Id==ticket.FlightId).Select(f=>f.FlightSchedule.Aircraft.Capacity).FirstAsync();
+        int activeTickets=await _context.Tickets.CountAsync(t=>t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled);
+        if(activeTickets>=capacity)
+        {
+            return (false,$"Ticket {ticket.TicketNumber} cannot be reactivated because the flight has no available seats. (Capacity: {capacity}/{capacity})");
+        }
+        if(ticket.SeatNumber!=null)
+        {
+            bool seatTaken=await _context.Tickets.AnyAsync(t=>t.Id!=ticket.Id && t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled && t.SeatNumber==ticket.SeatNumber);
+            if(seatTaken)
+            {
+                return (false,$"Ticket {ticket.TicketNumber} cannot be reactivated because seat {ticket.SeatNumber} is now taken by another ticket.");
+            }
+        }
+        return (true,null);
+    }
     private async Task UpdateExpiredTicketStatusAsync()
     {
         var now=DateTime.Now;
@@ -132,6 +165,12 @@ public class TicketService : ITicketService
             _logger.LogWarning("Ticket purchase failed due to price validation {Reason}", priceValidation.errorMessage);
             throw new InvalidOperationException(priceValidation.errorMessage);
         }
+        var seatValidation=await AssignSeatAsync(ticket);
+        if(!seatValidation.isValid)
+        {
+            _logger.LogWarning("Ticket purchase failed due to seat validation {Reason}", seatValidation.errorMessage);
+            throw new InvalidOperationException(seatValidation.errorMessage);
+        }
         var existingNumbers = await _context.Tickets
             .Select(t => t.TicketNumber)
             .ToListAsync();
@@ -142,8 +181,17 @@ public class TicketService : ITicketService
 
         ticket.TicketNumber = $"235-{DateTime.Now:HHmmss}{nextSerial:D4}";
 
-        _context.Tickets.Add(ticket);
-        await _context.SaveChangesAsync();
+        try
+        {
+            _context.Tickets.Add(ticket);
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateException ex)
+        {
+            // Two people bought the same seat at the same moment: the unique index stopped the second one
+            _logger.LogWarning(ex,"Ticket could not be saved for seat {SeatNumber} on Flight {FlightId}.",ticket.SeatNumber,ticket.FlightId);
+            throw new InvalidOperationException($"The ticket could not be saved. Seat '{ticket.SeatNumber}' was most likely taken by another passenger a moment ago. Please try again.");
+        }
 
         _logger.LogInformation("Ticket created succesfully: {TicketNumber} for Passenger {PassengerId} on Flight {FlightId}"
             ,ticket.TicketNumber, ticket.PassengerId, ticket.FlightId);
@@ -159,6 +207,15 @@ public class TicketService : ITicketService
             return false;
         }
         var oldStatus=existingTicket.Status;
+        if(oldStatus==TicketStatus.Cancelled && newStatus!=TicketStatus.Cancelled)
+        {
+            var reactivation=await ValidateReactivationAsync(existingTicket);
+            if(!reactivation.isValid)
+            {
+                _logger.LogWarning("Ticket ID {TicketId} reactivation failed: {Reason}", id, reactivation.errorMessage);
+                throw new InvalidOperationException(reactivation.errorMessage);
+            }
+        }
         existingTicket.Status=newStatus;
         await _context.SaveChangesAsync();
 

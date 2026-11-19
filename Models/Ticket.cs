@@ -17,6 +17,8 @@ public class Ticket
     public TicketStatus Status{get;set;}
     public decimal PricePaid{get;set;}
     public DateOnly PurchaseDate{get;set;}
+    /// <summary>Seat such as "12A". Null for tickets created before seat selection existed.</summary>
+    public string? SeatNumber{get;set;}
     //foreign keys
     public int PassengerId{get;set;}
     public int FlightId{get;set;}

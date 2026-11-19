@@ -14,6 +14,7 @@ public static class TicketMappingExtensions
             Status=ticket.Status.ToString(),
             PricePaid=ticket.PricePaid,
             PurchaseDate=ticket.PurchaseDate,
+            SeatNumber=ticket.SeatNumber,
             Passenger=ticket.Passenger.ToResponse(),
             Flight=ticket.Flight.ToResponse()
         };
@@ -25,6 +26,7 @@ public static class TicketMappingExtensions
             PassengerId=request.PassengerId,
             FlightId=request.FlightId,
             PricePaid=request.PricePaid,
+            SeatNumber=string.IsNullOrWhiteSpace(request.SeatNumber) ? null : request.SeatNumber.Trim().ToUpperInvariant(),
             PurchaseDate=DateOnly.FromDateTime(DateTime.Now)
         };
     }

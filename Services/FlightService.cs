@@ -1,6 +1,7 @@
 using AirlineAPI.Models;
 using AirlineAPI.Data;
 using Microsoft.EntityFrameworkCore;
+using AirlineAPI.DTOs;
 
 namespace AirlineAPI.Services;
 
@@ -104,6 +105,35 @@ public class FlightService : IFlightService
 
         _logger.LogInformation("Flight ID {FlightId} date changed from {OldDate} to {NewDate}", id, oldDate, newDate);
         return true;
+    }
+    public async Task<SeatMapResponse?> GetSeatMapAsync(int flightId)
+    {
+        var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==flightId);
+        if(flight==null)
+        {
+            return null;
+        }
+        var aircraft=flight.FlightSchedule.Aircraft;
+        var activeTickets=await _context.Tickets.Where(t=>t.FlightId==flightId && t.Status!=TicketStatus.Cancelled).Select(t=>t.SeatNumber).ToListAsync();
+        var response=new SeatMapResponse
+        {
+            FlightId=flight.Id,
+            FlightNumber=flight.FlightSchedule.FlightNumber,
+            Model=aircraft.Model,
+            Capacity=aircraft.Capacity,
+            AvailableSeats=Math.Max(0,aircraft.Capacity-activeTickets.Count),
+            TakenSeats=activeTickets.Where(s=>s!=null).Select(s=>s!).ToList()
+        };
+        foreach(var cabin in SeatLayoutBuilder.Build(aircraft.Model,aircraft.Capacity))
+        {
+            response.Cabins.Add(new SeatCabinResponse
+            {
+                Name=cabin.Name,
+                Layout=cabin.Layout,
+                Rows=SeatLayoutBuilder.RowsOf(cabin).Select(r=>new SeatRowResponse{Number=r.Number,Seats=r.Seats}).ToList()
+            });
+        }
+        return response;
     }
     public async Task<bool> DeleteFlightAsync(int id)
     {
