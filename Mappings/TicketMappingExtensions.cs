@@ -15,6 +15,7 @@ public static class TicketMappingExtensions
             PricePaid=ticket.PricePaid,
             PurchaseDate=ticket.PurchaseDate,
             SeatNumber=ticket.SeatNumber,
+            PaidFromBalance=ticket.BalanceCharged,
             Passenger=ticket.Passenger.ToResponse(),
             Flight=ticket.Flight.ToResponse()
         };

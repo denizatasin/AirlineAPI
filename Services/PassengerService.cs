@@ -30,10 +30,28 @@ public class PassengerService: IPassengerService
         }
         return passenger;
     }
+    // Validates the profile fields and makes sure Email / IdentityNumber are not used by another passenger
+    private async Task CheckProfileAsync(Passenger passenger,int? ignoreId)
+    {
+        var error=PassengerRules.Validate(passenger);
+        if(error!=null)
+        {
+            throw new InvalidOperationException(error);
+        }
+        if(passenger.Email!=null && await _context.Passengers.AnyAsync(p=>p.Email==passenger.Email && p.Id!=ignoreId))
+        {
+            throw new InvalidOperationException("This email address is already registered to another passenger.");
+        }
+        if(passenger.IdentityNumber!=null && await _context.Passengers.AnyAsync(p=>p.IdentityNumber==passenger.IdentityNumber && p.Id!=ignoreId))
+        {
+            throw new InvalidOperationException("This TC kimlik / passport number is already registered to another passenger.");
+        }
+    }
     public async Task<bool> AddPassengerAsync(Passenger passenger)
     {
+        await CheckProfileAsync(passenger,null);
         _context.Passengers.Add(passenger);
-        await _context.SaveChangesAsync();
+        await SaveProfileAsync();
 
         _logger.LogInformation("Passenger registered successfully. ID: {PassengerId}, Name: {FirstName} {LastName}",passenger.Id,passenger.FirstName,passenger.LastName);
         return true;
@@ -67,5 +85,107 @@ public class PassengerService: IPassengerService
 
         _logger.LogInformation("Passenger ID {PassengerId} ({FirstName} {LastName}) deleted.",id,passenger.FirstName,passenger.LastName);
         return true;
+    }
+    // Adds money to the balance. Returns null if the passenger does not exist.
+    public async Task<Passenger?> TopUpBalanceAsync(int id, decimal amount)
+    {
+        var passenger=await _context.Passengers.FindAsync(id);
+        if(passenger==null)
+        {
+            return null;
+        }
+        passenger.Balance+=Math.Round(amount,2);
+        await SaveBalanceAsync();
+        _logger.LogInformation("Passenger ID {PassengerId} topped up {Amount} TL. New balance: {Balance} TL",id,amount,passenger.Balance);
+        return passenger;
+    }
+    public async Task<bool> SetBalanceAsync(int id, decimal balance)
+    {
+        var passenger=await _context.Passengers.FindAsync(id);
+        if(passenger==null)
+        {
+            return false;
+        }
+        passenger.Balance=Math.Round(balance,2);
+        await SaveBalanceAsync();
+        _logger.LogInformation("Passenger ID {PassengerId} balance set to {Balance} TL by admin.",id,passenger.Balance);
+        return true;
+    }
+    private async Task SaveBalanceAsync()
+    {
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("The balance was changed by another request at the same time. Please try again.");
+        }
+    }
+    // The database unique indexes are the last safety net if two requests use the same value at the same moment
+    private async Task SaveProfileAsync()
+    {
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateException)
+        {
+            throw new InvalidOperationException("Email or TC kimlik / passport number is already registered to another passenger.");
+        }
+    }
+    public async Task<PassengerStats?> GetStatsAsync(int id)
+    {
+        var passenger=await _context.Passengers.FindAsync(id);
+        if(passenger==null)
+        {
+            return null;
+        }
+        var tickets=await _context.Tickets.Where(t=>t.PassengerId==id && t.Status!=TicketStatus.Cancelled)
+            .Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ToListAsync();
+        var now=DateTime.Now;
+        // A ticket counts as flown when its status is Used or its departure time is already in the past
+        bool IsFlown(Ticket t)=>t.Status==TicketStatus.Used || t.Flight.Date.ToDateTime(TimeOnly.FromTimeSpan(t.Flight.FlightSchedule.DepartureTime))<now;
+        return new PassengerStats
+        {
+            Passenger=passenger,
+            TotalFlights=tickets.Count(IsFlown),
+            ActiveTickets=tickets.Count(t=>!IsFlown(t)),
+            TotalSpent=tickets.Sum(t=>t.PricePaid)
+        };
+    }
+    // Passenger edits their own profile. Locked fields (nationality, identity number, birth date) can only be filled while empty.
+    public async Task<Passenger?> UpdateMyProfileAsync(int id, UpdateMyProfileRequest request)
+    {
+        var passenger=await _context.Passengers.FindAsync(id);
+        if(passenger==null)
+        {
+            return null;
+        }
+        passenger.Email=PassengerRules.NormalizeEmail(request.Email);
+        passenger.Phone=PassengerRules.NormalizePhone(request.Phone);
+        passenger.Gender=PassengerRules.NormalizeText(request.Gender);
+
+        var nationality=PassengerRules.NormalizeText(request.Nationality);
+        var identity=PassengerRules.NormalizeIdentity(request.IdentityNumber);
+        if(nationality!=null && nationality!=passenger.Nationality)
+        {
+            if(passenger.Nationality!=null) throw new InvalidOperationException("Nationality can only be changed by an admin.");
+            passenger.Nationality=nationality;
+        }
+        if(identity!=null && identity!=passenger.IdentityNumber)
+        {
+            if(passenger.IdentityNumber!=null) throw new InvalidOperationException("TC kimlik / passport number can only be changed by an admin.");
+            passenger.IdentityNumber=identity;
+        }
+        if(request.BirthDate!=null && request.BirthDate!=passenger.BirthDate)
+        {
+            if(passenger.BirthDate!=null) throw new InvalidOperationException("Birth date can only be changed by an admin.");
+            passenger.BirthDate=request.BirthDate;
+        }
+        await CheckProfileAsync(passenger,id);
+        await SaveProfileAsync();
+        _logger.LogInformation("Passenger ID {PassengerId} updated their profile.",id);
+        return passenger;
     }
 }

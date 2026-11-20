@@ -34,7 +34,34 @@ public static class SeatLayoutBuilder
     // I is skipped on purpose (it looks like 1)
     private const string Letters="ABCDEFGHJKL";
 
+    // Price of a seat = base (Economy) price x cabin multiplier. Change these to tune the prices.
+    public const decimal BusinessMultiplier=1.5m;
+    public const decimal FirstMultiplier=2.0m;
     public static bool IsWideBody(string model)=>WideBodyModels.Contains(model);
+    public static decimal MultiplierOf(string cabinName)=>cabinName switch
+    {
+        "First"=>FirstMultiplier,
+        "Business"=>BusinessMultiplier,
+        _=>1.0m
+    };
+    public static decimal PriceFor(decimal basePrice,string cabinName)=>Math.Round(basePrice*MultiplierOf(cabinName),2,MidpointRounding.AwayFromZero);
+    /// <summary>Name of the cabin a seat belongs to (null if the seat does not exist).</summary>
+    public static string? CabinOfSeat(IEnumerable<CabinSection> cabins,string seat)
+    {
+        foreach(var cabin in cabins)
+        {
+            if(RowsOf(cabin).Any(r=>r.Seats.Contains(seat)))
+            {
+                return cabin.Name;
+            }
+        }
+        return null;
+    }
+    /// <summary>Seat names of the Economy cabin only (used for random assignment).</summary>
+    public static List<string> EconomySeatNumbers(IEnumerable<CabinSection> cabins)
+    {
+        return AllSeatNumbers(cabins.Where(c=>c.Name=="Economy"));
+    }
 
     public static List<CabinSection> Build(string model,int capacity)
     {
@@ -143,7 +170,7 @@ public static class SeatLayoutBuilder
     /// <summary>
     /// Validates a requested seat, or picks a random free seat when none was requested.
     /// </summary>
-    public static (string? seat,string? error) ChooseSeat(IReadOnlyCollection<string> allSeats,IEnumerable<string> takenSeats,string? requested)
+    public static (string? seat,string? error) ChooseSeat(IReadOnlyCollection<string> allSeats,IEnumerable<string> takenSeats,string? requested,IReadOnlyCollection<string>? randomPool=null)
     {
         var taken=new HashSet<string>(takenSeats);
         if(!string.IsNullOrWhiteSpace(requested))
@@ -159,10 +186,10 @@ public static class SeatLayoutBuilder
             }
             return (seat,null);
         }
-        var free=allSeats.Where(s=>!taken.Contains(s)).ToList();
+        var free=(randomPool??allSeats).Where(s=>!taken.Contains(s)).ToList();
         if(free.Count==0)
         {
-            return (null,"There are no free seats on this flight.");
+            return (null,randomPool!=null ? "There are no free Economy seats left. Please choose a Business or First seat." : "There are no free seats on this flight.");
         }
         return (free[Random.Shared.Next(free.Count)],null);
     }

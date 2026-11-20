@@ -68,7 +68,8 @@ public class TicketsController:ControllerBase
         try
         {
             var ticket=request.ToEntity();
-            await _ticketService.AddTicketAsync(ticket);
+            // Passengers pay from their balance; tickets created by an admin do not touch the balance
+            await _ticketService.AddTicketAsync(ticket,chargeBalance:!User.isAdmin());
             var createdTicket=await _ticketService.GetTicketByIdAsync(ticket.Id);
             return CreatedAtAction(nameof(GetTicket),new {id=ticket.Id},createdTicket!.ToResponse());
         }

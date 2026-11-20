@@ -44,5 +44,8 @@ public class AirlineDbContext: DbContext
         // A seat can belong to only one active ticket per flight (cancelled tickets free their seat; Status 2 = Cancelled)
         modelBuilder.Entity<Ticket>().HasIndex(t=>new{t.FlightId,t.SeatNumber}).IsUnique().HasFilter("[SeatNumber] IS NOT NULL AND [Status] <> 2");
         modelBuilder.Entity<User>().HasIndex(u=>u.Username).IsUnique();
+        // Unique when present: passengers without email / identity number do not collide with each other
+        modelBuilder.Entity<Passenger>().HasIndex(p=>p.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
+        modelBuilder.Entity<Passenger>().HasIndex(p=>p.IdentityNumber).IsUnique().HasFilter("[IdentityNumber] IS NOT NULL");
     }
 }

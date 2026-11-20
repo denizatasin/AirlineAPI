@@ -1,7 +1,7 @@
+using AirlineAPI.DTOs;
 using AirlineAPI.Models;
 using AirlineAPI.Data;
 using Microsoft.EntityFrameworkCore;
-using AirlineAPI.DTOs;
 
 namespace AirlineAPI.Services;
 
@@ -44,11 +44,11 @@ public class FlightService : IFlightService
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     public async Task<List<Flight>> GetAllFlightsAsync()
     {
-        return await _context.Flights.Include(f=>f.FlightSchedule).ToListAsync();
+        return await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).ToListAsync();
     }
     public async Task<Flight?> GetFlightByIdAsync(int id)
     {
-        var flight= await _context.Flights.Include(f=>f.FlightSchedule).FirstOrDefaultAsync(f=>f.Id==id);
+        var flight= await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==id);
         if(flight==null)
         {
             _logger.LogWarning("Flight query failed. Flight ID {FlightId} not found.", id);
@@ -106,6 +106,14 @@ public class FlightService : IFlightService
         _logger.LogInformation("Flight ID {FlightId} date changed from {OldDate} to {NewDate}", id, oldDate, newDate);
         return true;
     }
+    // Free seats per flight: aircraft capacity minus active (not cancelled) tickets. Flights need their Aircraft loaded.
+    public async Task<Dictionary<int,int>> GetAvailableSeatsAsync(IEnumerable<Flight> flights)
+    {
+        var activeCounts=await _context.Tickets.Where(t=>t.Status!=TicketStatus.Cancelled)
+            .GroupBy(t=>t.FlightId).Select(g=>new{FlightId=g.Key,Count=g.Count()})
+            .ToDictionaryAsync(x=>x.FlightId,x=>x.Count);
+        return flights.ToDictionary(f=>f.Id,f=>Math.Max(0,f.FlightSchedule.Aircraft.Capacity-(activeCounts.TryGetValue(f.Id,out var used) ? used : 0)));
+    }
     public async Task<SeatMapResponse?> GetSeatMapAsync(int flightId)
     {
         var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==flightId);
@@ -121,6 +129,7 @@ public class FlightService : IFlightService
             FlightNumber=flight.FlightSchedule.FlightNumber,
             Model=aircraft.Model,
             Capacity=aircraft.Capacity,
+            BasePrice=flight.FlightSchedule.Price,
             AvailableSeats=Math.Max(0,aircraft.Capacity-activeTickets.Count),
             TakenSeats=activeTickets.Where(s=>s!=null).Select(s=>s!).ToList()
         };
@@ -130,6 +139,7 @@ public class FlightService : IFlightService
             {
                 Name=cabin.Name,
                 Layout=cabin.Layout,
+                Price=SeatLayoutBuilder.PriceFor(flight.FlightSchedule.Price,cabin.Name),
                 Rows=SeatLayoutBuilder.RowsOf(cabin).Select(r=>new SeatRowResponse{Number=r.Number,Seats=r.Seats}).ToList()
             });
         }

@@ -6,7 +6,7 @@ public interface ITicketService
 {
     Task<List<Ticket>>GetAllTicketsAsync();
     Task<Ticket?> GetTicketByIdAsync(int id);
-    Task<bool> AddTicketAsync(Ticket ticket);
+    Task<bool> AddTicketAsync(Ticket ticket,bool chargeBalance=false);
     Task<bool> UpdateTicketAsync(int id, TicketStatus newStatus);
     Task<bool> DeleteTicketAsync(int id);
 }

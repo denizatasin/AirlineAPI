@@ -1,6 +1,8 @@
 using AirlineAPI.Data;
 using AirlineAPI.DTOs;
 using AirlineAPI.Models;
+using AirlineAPI.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -50,49 +52,98 @@ public class AuthController: ControllerBase
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+    // Public registration: always creates a Passenger (nobody can make themselves an Admin here)
     [HttpPost("register")]
     public async Task<IActionResult>Register(RegisterRequest request)
     {
-        if(!Enum.TryParse<UserRole>(request.Role,true,out var role))
+        string username=request.Username.Trim();
+        if(await _context.Users.AnyAsync(u=>u.Username==username))
         {
-            _logger.LogWarning("Registration failed. Invalid role specified: {Role}",request.Role);
-            return BadRequest($"Invalid role {request.Role}. Valid roles: Admin, Passenger.");
+            _logger.LogWarning("Registration failed. Username {Username} already exists.",username);
+            return Conflict($"Username {username} is already taken.");
         }
-        bool exists=await _context.Users.AnyAsync(u=>u.Username==request.Username);
-        if(exists)
+        var passenger=new Passenger
         {
-            _logger.LogWarning("Registration failed. Username {Username} already exists.",request.Username);
-            return Conflict($"Username {request.Username} is already taken.");
-        }
-        var user=new User
-        {
-            Username=request.Username,
-            Role=role
+            FirstName=request.FirstName,
+            LastName=request.LastName,
+            Email=PassengerRules.NormalizeEmail(request.Email),
+            Nationality=PassengerRules.NormalizeText(request.Nationality),
+            IdentityNumber=PassengerRules.NormalizeIdentity(request.IdentityNumber),
+            Gender=PassengerRules.NormalizeText(request.Gender),
+            Phone=PassengerRules.NormalizePhone(request.Phone),
+            BirthDate=request.BirthDate
         };
-        user.PasswordHash=_passwordHasher.HashPassword(user,request.Password);
-
-        if(role==UserRole.Passenger)
+        var error=PassengerRules.Validate(passenger);
+        if(error!=null)
         {
-            if(string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-            {
-                _logger.LogWarning("Registration failed. Missing first name or last name for passenger user: {Username}",request.Username);
-                return BadRequest("FirstName and LastName are required for Passenger role.");
-            }
-            var passenger=new Passenger
-            {
-                FirstName=request.FirstName,
-                LastName=request.LastName
-            };
-            _context.Passengers.Add(passenger);
-            await _context.SaveChangesAsync();
-
-            user.PassengerId=passenger.Id;
+            _logger.LogWarning("Registration failed for {Username}: {Reason}",username,error);
+            return BadRequest(error);
         }
+        if(await _context.Passengers.AnyAsync(p=>p.Email==passenger.Email))
+        {
+            return Conflict("This email address is already registered.");
+        }
+        if(await _context.Passengers.AnyAsync(p=>p.IdentityNumber==passenger.IdentityNumber))
+        {
+            return Conflict("This TC kimlik / passport number is already registered.");
+        }
+        var user=new User{Username=username,Role=UserRole.Passenger,Passenger=passenger};
+        user.PasswordHash=_passwordHasher.HashPassword(user,request.Password);
+        try
+        {
+            // Passenger and User are saved together: either both exist or neither
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateException ex)
+        {
+            _logger.LogWarning(ex,"Registration could not be saved for {Username}.",username);
+            return Conflict("Username, email or TC kimlik / passport number is already registered.");
+        }
+        _logger.LogInformation("User '{Username}' registered successfully as Passenger.",user.Username);
+        return Ok("User registered successfully.");
+    }
+    // Only an existing admin can create another admin account
+    [Authorize(Roles="Admin")]
+    [HttpPost("register-admin")]
+    public async Task<IActionResult>RegisterAdmin(RegisterAdminRequest request)
+    {
+        string username=request.Username.Trim();
+        if(await _context.Users.AnyAsync(u=>u.Username==username))
+        {
+            return Conflict($"Username {username} is already taken.");
+        }
+        var user=new User{Username=username,Role=UserRole.Admin};
+        user.PasswordHash=_passwordHasher.HashPassword(user,request.Password);
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
-
-        _logger.LogInformation("User '{Username}' registered successfully with role: '{Role}'.",user.Username,user.Role);
-        return Ok("User registered successfully.");
+        _logger.LogInformation("Admin '{Username}' created by '{Creator}'.",username,User.Identity?.Name);
+        return Ok("Admin registered successfully.");
+    }
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult>ChangePassword(ChangePasswordRequest request)
+    {
+        string? username=User.FindFirst(ClaimTypes.Name)?.Value;
+        var user=await _context.Users.FirstOrDefaultAsync(u=>u.Username==username);
+        if(user==null)
+        {
+            return NotFound();
+        }
+        var check=_passwordHasher.VerifyHashedPassword(user,user.PasswordHash,request.CurrentPassword);
+        if(check==PasswordVerificationResult.Failed)
+        {
+            _logger.LogWarning("Password change failed for '{Username}': wrong current password.",user.Username);
+            return BadRequest("Current password is incorrect.");
+        }
+        if(request.CurrentPassword==request.NewPassword)
+        {
+            return BadRequest("New password must be different from the current password.");
+        }
+        user.PasswordHash=_passwordHasher.HashPassword(user,request.NewPassword);
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("User '{Username}' changed their password.",user.Username);
+        return Ok("Password changed successfully.");
     }
     [HttpPost("login")]
     public async Task<IActionResult>Login(LoginRequest request)

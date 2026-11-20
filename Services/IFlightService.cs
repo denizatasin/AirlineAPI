@@ -1,5 +1,5 @@
-using AirlineAPI.Models;
 using AirlineAPI.DTOs;
+using AirlineAPI.Models;
 
 namespace AirlineAPI.Services;
 
@@ -16,4 +16,5 @@ public interface IFlightService
     Task<bool> DeleteFlightAsync(int id);
     Task<int> GenerateFlightsAsync(DateOnly startDate,int days);
     Task<SeatMapResponse?> GetSeatMapAsync(int flightId);
+    Task<Dictionary<int,int>> GetAvailableSeatsAsync(IEnumerable<Flight> flights);
 }

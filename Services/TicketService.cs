@@ -56,17 +56,20 @@ public class TicketService : ITicketService
         var errorMessage = $"Passenger with Id '{passengerId}' not found.\n\nAvailable Passengers:\n{table}";
         return (false, errorMessage);
     }
-    private async Task<(bool isValid,string? errorMessage)>ValidatePricePaidAsync(int flightId,decimal pricePaid)
+    // The price depends on the cabin of the chosen seat: base price x cabin multiplier
+    private async Task<(bool isValid,string? errorMessage)>ValidatePricePaidAsync(Ticket ticket)
     {
-        var flight=await _context.Flights.Include(f=>f.FlightSchedule).FirstOrDefaultAsync(f=>f.Id==flightId);
+        var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==ticket.FlightId);
         if(flight==null)
         {
             return (true,null);
         }
-        decimal expectedPrice=flight.FlightSchedule.Price;
-        if(pricePaid!=expectedPrice)
+        var cabins=SeatLayoutBuilder.Build(flight.FlightSchedule.Aircraft.Model,flight.FlightSchedule.Aircraft.Capacity);
+        string cabinName=ticket.SeatNumber!=null ? (SeatLayoutBuilder.CabinOfSeat(cabins,ticket.SeatNumber) ?? "Economy") : "Economy";
+        decimal expectedPrice=SeatLayoutBuilder.PriceFor(flight.FlightSchedule.Price,cabinName);
+        if(ticket.PricePaid!=expectedPrice)
         {
-            return (false, $"Invalid payment amount. The official price for flight {flightId} is {expectedPrice:N2} TL, but you entered {pricePaid:N2} TL.");
+            return (false, $"Invalid payment amount. The official price for seat {ticket.SeatNumber} ({cabinName}) on flight {ticket.FlightId} is {expectedPrice:N2} TL, but you entered {ticket.PricePaid:N2} TL.");
         }
         return(true,null);
     }
@@ -74,9 +77,12 @@ public class TicketService : ITicketService
     private async Task<(bool isValid,string? errorMessage)> AssignSeatAsync(Ticket ticket)
     {
         var aircraft=await _context.Flights.Where(f=>f.Id==ticket.FlightId).Select(f=>f.FlightSchedule.Aircraft).FirstAsync();
-        var allSeats=SeatLayoutBuilder.AllSeatNumbers(SeatLayoutBuilder.Build(aircraft.Model,aircraft.Capacity));
+        var cabins=SeatLayoutBuilder.Build(aircraft.Model,aircraft.Capacity);
+        var allSeats=SeatLayoutBuilder.AllSeatNumbers(cabins);
+        // No seat requested => random seat, but only in Economy (the cheapest cabin)
+        var randomPool=string.IsNullOrWhiteSpace(ticket.SeatNumber) ? SeatLayoutBuilder.EconomySeatNumbers(cabins) : null;
         var activeSeats=await _context.Tickets.Where(t=>t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled).Select(t=>t.SeatNumber).ToListAsync();
-        var choice=SeatLayoutBuilder.ChooseSeat(allSeats,activeSeats.Where(s=>s!=null).Select(s=>s!),ticket.SeatNumber);
+        var choice=SeatLayoutBuilder.ChooseSeat(allSeats,activeSeats.Where(s=>s!=null).Select(s=>s!),ticket.SeatNumber,randomPool);
         if(choice.error!=null)
         {
             return (false,choice.error);
@@ -145,7 +151,7 @@ public class TicketService : ITicketService
                 .ThenInclude(fs=>fs.Aircraft)
             .Include(t=>t.Passenger).FirstOrDefaultAsync(t=>t.Id==id);
     }
-    public async Task<bool> AddTicketAsync(Ticket ticket)
+    public async Task<bool> AddTicketAsync(Ticket ticket,bool chargeBalance=false)
     {
         var flightValidation= await ValidateFlightForTicketAsync(ticket.FlightId);
         if(!flightValidation.isValid)
@@ -159,17 +165,29 @@ public class TicketService : ITicketService
             _logger.LogWarning("Ticket purchase failed due to passenger validation {Reason}", passengerValidation.errorMessage);
             throw new InvalidOperationException(passengerValidation.errorMessage);
         }
-        var priceValidation=await ValidatePricePaidAsync(ticket.FlightId,ticket.PricePaid);
-        if(!priceValidation.isValid)
-        {
-            _logger.LogWarning("Ticket purchase failed due to price validation {Reason}", priceValidation.errorMessage);
-            throw new InvalidOperationException(priceValidation.errorMessage);
-        }
         var seatValidation=await AssignSeatAsync(ticket);
         if(!seatValidation.isValid)
         {
             _logger.LogWarning("Ticket purchase failed due to seat validation {Reason}", seatValidation.errorMessage);
             throw new InvalidOperationException(seatValidation.errorMessage);
+        }
+        var priceValidation=await ValidatePricePaidAsync(ticket);
+        if(!priceValidation.isValid)
+        {
+            _logger.LogWarning("Ticket purchase failed due to price validation {Reason}", priceValidation.errorMessage);
+            throw new InvalidOperationException(priceValidation.errorMessage);
+        }
+        if(chargeBalance)
+        {
+            var payer=await _context.Passengers.FindAsync(ticket.PassengerId);
+            if(payer==null || payer.Balance<ticket.PricePaid)
+            {
+                decimal current=payer?.Balance ?? 0;
+                _logger.LogWarning("Ticket purchase failed: insufficient balance for Passenger {PassengerId}",ticket.PassengerId);
+                throw new InvalidOperationException($"Insufficient balance. The ticket costs {ticket.PricePaid:N2} TL but your balance is {current:N2} TL. Please add balance first.");
+            }
+            payer.Balance-=ticket.PricePaid;
+            ticket.BalanceCharged=true;
         }
         var existingNumbers = await _context.Tickets
             .Select(t => t.TicketNumber)
@@ -185,6 +203,11 @@ public class TicketService : ITicketService
         {
             _context.Tickets.Add(ticket);
             await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateConcurrencyException)
+        {
+            // The balance was changed by another request while this ticket was being bought
+            throw new InvalidOperationException("Your balance changed while the ticket was being bought. Please try again.");
         }
         catch(DbUpdateException ex)
         {
@@ -216,8 +239,35 @@ public class TicketService : ITicketService
                 throw new InvalidOperationException(reactivation.errorMessage);
             }
         }
+        // Money side: cancelling refunds a ticket that was paid from the balance, reactivating charges it again
+        if(existingTicket.BalanceCharged)
+        {
+            var owner=await _context.Passengers.FindAsync(existingTicket.PassengerId);
+            if(owner!=null)
+            {
+                if(oldStatus!=TicketStatus.Cancelled && newStatus==TicketStatus.Cancelled)
+                {
+                    owner.Balance+=existingTicket.PricePaid;
+                }
+                else if(oldStatus==TicketStatus.Cancelled && newStatus!=TicketStatus.Cancelled)
+                {
+                    if(owner.Balance<existingTicket.PricePaid)
+                    {
+                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger's balance ({owner.Balance:N2} TL) is lower than the ticket price ({existingTicket.PricePaid:N2} TL).");
+                    }
+                    owner.Balance-=existingTicket.PricePaid;
+                }
+            }
+        }
         existingTicket.Status=newStatus;
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("The passenger's balance changed at the same time. Please try again.");
+        }
 
         _logger.LogInformation("Ticket ID {TicketId} status changed from {OldStatus} to {NewStatus}", id, oldStatus, newStatus);
         return true;
@@ -230,8 +280,24 @@ public class TicketService : ITicketService
             _logger.LogWarning("Ticket deletion failed. Ticket ID {TicketId} not found.", id);
             return false;
         }
+        // Deleting an active ticket that was paid from the balance gives the money back
+        if(ticket.BalanceCharged && ticket.Status!=TicketStatus.Cancelled)
+        {
+            var owner=await _context.Passengers.FindAsync(ticket.PassengerId);
+            if(owner!=null)
+            {
+                owner.Balance+=ticket.PricePaid;
+            }
+        }
         _context.Tickets.Remove(ticket);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch(DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("The passenger's balance changed at the same time. Please try again.");
+        }
 
         _logger.LogInformation("Ticket ID {TicketId} (Number:{TicketNumber}) deleted by admin.", id, ticket.TicketNumber);
         return true;

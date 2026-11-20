@@ -25,35 +25,98 @@ public class PassengersController: ControllerBase
     }
     [Authorize(Roles = "Passenger")]
     [HttpGet("me")]
-    public async Task<ActionResult<PassengerResponse>> GetMyProfile()
+    public async Task<ActionResult<PassengerProfileResponse>> GetMyProfile()
     {
         var currentPassengerId = User.GetPassengerId();
         if (currentPassengerId == null)
         {
             _logger.LogWarning("Unauthorized access to passenger profile. No PassengerId claim found.");
             return Unauthorized();
-        } 
-
-        var passenger = await _passengerService.GetPassengerByIdAsync(currentPassengerId.Value);
-        if (passenger == null)
+        }
+        var stats = await _passengerService.GetStatsAsync(currentPassengerId.Value);
+        if (stats == null)
         {
             _logger.LogWarning("Passenger profile not found for PassengerId {PassengerId}",currentPassengerId);
             return NotFound();
-        } 
-
-        return Ok(passenger.ToResponse());
+        }
+        return Ok(stats.Passenger.ToProfileResponse(stats));
+    }
+    [Authorize(Roles = "Passenger")]
+    [HttpPut("me")]
+    public async Task<ActionResult<PassengerProfileResponse>> UpdateMyProfile(UpdateMyProfileRequest request)
+    {
+        var currentPassengerId = User.GetPassengerId();
+        if (currentPassengerId == null)
+        {
+            return Unauthorized();
+        }
+        try
+        {
+            var passenger = await _passengerService.UpdateMyProfileAsync(currentPassengerId.Value, request);
+            if (passenger == null)
+            {
+                return NotFound();
+            }
+            var stats = await _passengerService.GetStatsAsync(passenger.Id);
+            return Ok(passenger.ToProfileResponse(stats!));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+    [Authorize(Roles = "Passenger")]
+    [HttpPost("me/balance")]
+    public async Task<ActionResult<PassengerResponse>> TopUpMyBalance(TopUpRequest request)
+    {
+        var currentPassengerId = User.GetPassengerId();
+        if (currentPassengerId == null)
+        {
+            return Unauthorized();
+        }
+        try
+        {
+            var passenger = await _passengerService.TopUpBalanceAsync(currentPassengerId.Value, request.Amount);
+            if (passenger == null)
+            {
+                return NotFound();
+            }
+            return Ok(passenger.ToResponse());
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+    [Authorize(Roles="Admin")]
+    [HttpPut("{id}/balance")]
+    public async Task<IActionResult> SetBalance(int id,SetBalanceRequest request)
+    {
+        try
+        {
+            bool updated=await _passengerService.SetBalanceAsync(id,request.Balance);
+            if(!updated)
+            {
+                return NotFound();
+            }
+            return NoContent();
+        }
+        catch(InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
     [Authorize(Roles="Admin")]
     [HttpGet]
-    public async Task<ActionResult<List<PassengerResponse>>> GetAllPassengers()
+    public async Task<ActionResult<List<PassengerDetailResponse>>> GetAllPassengers()
     {
         var passengers=await _passengerService.GetAllPassengersAsync();
-        var response=passengers.Select(passenger=>passenger.ToResponse()).ToList();
+        var response=passengers.Select(passenger=>passenger.ToDetailResponse()).ToList();
         return Ok(response);
     }
     [Authorize(Roles="Admin")]
     [HttpGet("{id}")]
-    public async Task<ActionResult<PassengerResponse>> GetPassenger(int id)
+    public async Task<ActionResult<PassengerDetailResponse>> GetPassenger(int id)
     {
         var passenger=await _passengerService.GetPassengerByIdAsync(id);
         if(passenger==null)
@@ -61,16 +124,16 @@ public class PassengersController: ControllerBase
             _logger.LogWarning("Passenger ID {PassengerId} not found.",id);
             return NotFound();
         }
-        return Ok(passenger.ToResponse());
+        return Ok(passenger.ToDetailResponse());
     }
     [Authorize(Roles="Admin")]
     [HttpPost]
-    public async Task<ActionResult<PassengerResponse>> AddPassenger(CreatePassengerRequest request)
+    public async Task<ActionResult<PassengerDetailResponse>> AddPassenger(CreatePassengerRequest request)
     {
         var passenger=request.ToEntity();
         await _passengerService.AddPassengerAsync(passenger);
         _logger.LogInformation("Passenger ID {PassengerId} created via HTTP POST.",passenger.Id);
-        return CreatedAtAction(nameof(GetPassenger),new{id=passenger.Id},passenger.ToResponse());
+        return CreatedAtAction(nameof(GetPassenger),new{id=passenger.Id},passenger.ToDetailResponse());
     }
     [Authorize(Roles="Admin")]
     [HttpPut("{id}")]

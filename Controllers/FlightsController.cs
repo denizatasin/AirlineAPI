@@ -28,7 +28,8 @@ public class FlightsController : ControllerBase
     public async Task<ActionResult<List<FlightResponse>>> GetAllFlights()
     {
         var flights= await _flightService.GetAllFlightsAsync();
-        var response=flights.Select(flight=>flight.ToResponse()).ToList();
+        var available=await _flightService.GetAvailableSeatsAsync(flights);
+        var response=flights.Select(flight=>flight.ToResponse(available[flight.Id])).ToList();
         return Ok(response);
     }
     [AllowAnonymous]
@@ -41,7 +42,8 @@ public class FlightsController : ControllerBase
             _logger.LogWarning("Flight ID {FlightId} not found.",id);
             return NotFound();
         }
-        var response=flight.ToResponse();
+        var available=await _flightService.GetAvailableSeatsAsync(new[]{flight});
+        var response=flight.ToResponse(available[flight.Id]);
         return Ok(response);
     }
     [Authorize(Roles ="Admin")]

@@ -10,7 +10,7 @@ namespace AirlineAPI.Mappings;
 /// </summary>
 public static class FlightMappingExtensions
 {
-    public static FlightResponse ToResponse(this Flight flight)
+    public static FlightResponse ToResponse(this Flight flight,int? availableSeats=null)
     {
         return new FlightResponse
         {
@@ -21,7 +21,9 @@ public static class FlightMappingExtensions
             Arrival=flight.FlightSchedule.Arrival,
             Price=flight.FlightSchedule.Price,
             DepartureTime=flight.FlightSchedule.DepartureTime,
-            ArrivalTime=flight.FlightSchedule.ArrivalTime
+            ArrivalTime=flight.FlightSchedule.ArrivalTime,
+            AircraftModel=flight.FlightSchedule.Aircraft?.Model ?? "",
+            AvailableSeats=availableSeats
         };
     }
     public static Flight ToEntity(this CreateFlightRequest request)

@@ -19,6 +19,8 @@ public class Ticket
     public DateOnly PurchaseDate{get;set;}
     /// <summary>Seat such as "12A". Null for tickets created before seat selection existed.</summary>
     public string? SeatNumber{get;set;}
+    /// <summary>True if the price was taken from the passenger's balance (so cancelling refunds it).</summary>
+    public bool BalanceCharged{get;set;}
     //foreign keys
     public int PassengerId{get;set;}
     public int FlightId{get;set;}
