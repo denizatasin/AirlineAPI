@@ -74,6 +74,7 @@ public class DestinationService:IDestinationService
         existingDestination.City=updatedDestination.City;
         existingDestination.RangeStart=updatedDestination.RangeStart;
         existingDestination.RangeEnd=updatedDestination.RangeEnd;
+        existingDestination.DistanceKm=updatedDestination.DistanceKm;
         
         await _context.SaveChangesAsync();
         

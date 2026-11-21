@@ -116,7 +116,7 @@ public class FlightService : IFlightService
     }
     public async Task<SeatMapResponse?> GetSeatMapAsync(int flightId)
     {
-        var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).FirstOrDefaultAsync(f=>f.Id==flightId);
+        var flight=await _context.Flights.Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).Include(f=>f.FlightSchedule).ThenInclude(fs=>fs.Destination).FirstOrDefaultAsync(f=>f.Id==flightId);
         if(flight==null)
         {
             return null;
@@ -140,6 +140,7 @@ public class FlightService : IFlightService
                 Name=cabin.Name,
                 Layout=cabin.Layout,
                 Price=SeatLayoutBuilder.PriceFor(flight.FlightSchedule.Price,cabin.Name),
+                Miles=MilesRules.Earned(flight.FlightSchedule.Destination.DistanceKm,cabin.Name),
                 Rows=SeatLayoutBuilder.RowsOf(cabin).Select(r=>new SeatRowResponse{Number=r.Number,Seats=r.Seats}).ToList()
             });
         }

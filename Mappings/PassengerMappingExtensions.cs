@@ -13,10 +13,11 @@ public static class PassengerMappingExtensions
             Id=passenger.Id,
             FirstName=passenger.FirstName,
             LastName=passenger.LastName,
-            Balance=passenger.Balance
+            Balance=passenger.Balance,
+            Miles=passenger.Miles
         };
     }
-    public static PassengerDetailResponse ToDetailResponse(this Passenger passenger)
+    public static PassengerDetailResponse ToDetailResponse(this Passenger passenger,string? username=null)
     {
         return new PassengerDetailResponse
         {
@@ -24,12 +25,14 @@ public static class PassengerMappingExtensions
             FirstName=passenger.FirstName,
             LastName=passenger.LastName,
             Balance=passenger.Balance,
+            Miles=passenger.Miles,
             Email=passenger.Email,
             IdentityNumber=passenger.IdentityNumber,
             Gender=passenger.Gender,
             Nationality=passenger.Nationality,
             Phone=passenger.Phone,
-            BirthDate=passenger.BirthDate
+            BirthDate=passenger.BirthDate,
+            Username=username
         };
     }
     public static PassengerProfileResponse ToProfileResponse(this Passenger passenger,PassengerStats stats)
@@ -40,6 +43,7 @@ public static class PassengerMappingExtensions
             FirstName=passenger.FirstName,
             LastName=passenger.LastName,
             Balance=passenger.Balance,
+            Miles=passenger.Miles,
             Email=passenger.Email,
             IdentityNumber=PassengerRules.MaskIdentity(passenger.IdentityNumber),
             Gender=passenger.Gender,
@@ -48,7 +52,11 @@ public static class PassengerMappingExtensions
             BirthDate=passenger.BirthDate,
             TotalFlights=stats.TotalFlights,
             ActiveTickets=stats.ActiveTickets,
-            TotalSpent=stats.TotalSpent
+            TotalSpent=stats.TotalSpent,
+            StatusMiles=stats.StatusMiles,
+            Tier=MembershipTiers.TierFor(stats.StatusMiles),
+            NextTier=MembershipTiers.NextTier(MembershipTiers.TierFor(stats.StatusMiles)).name,
+            NextTierMiles=MembershipTiers.NextTier(MembershipTiers.TierFor(stats.StatusMiles)).miles
         };
     }
     public static Passenger ToEntity(this CreatePassengerRequest request)

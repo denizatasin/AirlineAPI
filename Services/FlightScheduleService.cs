@@ -187,6 +187,29 @@ public class FlightScheduleService : IFlightScheduleService
             throw new InvalidOperationException($"Price {updatedFlightSchedule.Price} must be between 1000 and 50000.");
         }
 
+        // Changing the route or the aircraft would break tickets that are already sold for upcoming flights
+        bool routeChanged=existingSchedule.DestinationId!=routeCheck.MatchedDestination.Id || existingSchedule.Departure!=updatedFlightSchedule.Departure || existingSchedule.Arrival!=updatedFlightSchedule.Arrival;
+        bool aircraftChanged=existingSchedule.AircraftId!=updatedFlightSchedule.AircraftId;
+        if(routeChanged || aircraftChanged)
+        {
+            var today=DateOnly.FromDateTime(DateTime.Now);
+            var upcoming=_context.Tickets.Where(t=>t.Flight.FlightScheduleId==id && t.Flight.Date>=today && (t.Status==TicketStatus.Booked || t.Status==TicketStatus.CheckedIn));
+            if(routeChanged && await upcoming.AnyAsync())
+            {
+                throw new InvalidOperationException("The route cannot be changed while upcoming flights of this schedule have active tickets. Cancel those tickets first.");
+            }
+            if(aircraftChanged)
+            {
+                var newAircraft=await _context.Aircrafts.FindAsync(updatedFlightSchedule.AircraftId);
+                var newSeats=SeatLayoutBuilder.AllSeatNumbers(SeatLayoutBuilder.Build(newAircraft!.Model,newAircraft.Capacity)).ToHashSet();
+                var held=await upcoming.Where(t=>t.SeatNumber!=null).Select(t=>t.SeatNumber!).Distinct().ToListAsync();
+                var lost=held.Where(s=>!newSeats.Contains(s)).ToList();
+                if(lost.Count>0)
+                {
+                    throw new InvalidOperationException($"The new aircraft does not have seats that are already sold on upcoming flights ({string.Join(", ",lost)}). Cancel or move those tickets first.");
+                }
+            }
+        }
         existingSchedule.FlightNumber = updatedFlightSchedule.FlightNumber;
         existingSchedule.Departure = updatedFlightSchedule.Departure;
         existingSchedule.Arrival = updatedFlightSchedule.Arrival;
@@ -210,6 +233,15 @@ public class FlightScheduleService : IFlightScheduleService
             _logger.LogWarning("FlightSchedule deletion failed. FlightSchedule ID {FlightScheduleId} not found.",id);
             return false;
         }
+        // Deleting a schedule also deletes its flights, so it must not have any tickets (even old ones: they are history)
+        int ticketCount=await _context.Tickets.CountAsync(t=>t.Flight.FlightScheduleId==id);
+        if(ticketCount>0)
+        {
+            _logger.LogWarning("FlightSchedule deletion failed. Schedule ID {FlightScheduleId} has {TicketCount} ticket(s).",id,ticketCount);
+            throw new InvalidOperationException($"This flight schedule cannot be deleted because {ticketCount} ticket(s) exist on its flights.");
+        }
+        var emptyFlights=await _context.Flights.Where(f=>f.FlightScheduleId==id).ToListAsync();
+        _context.Flights.RemoveRange(emptyFlights);
         _context.FlightSchedules.Remove(schedule);
         await _context.SaveChangesAsync();
 

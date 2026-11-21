@@ -11,4 +11,7 @@ public class CreateDestinationRequest
     public int RangeStart{get;set;}
     [Required(ErrorMessage ="RangeEnd is required.")]
     public int RangeEnd{get;set;}
+    [Required(ErrorMessage ="DistanceKm is required.")]
+    [Range(1,20000,ErrorMessage ="DistanceKm must be between 1 and 20000.")]
+    public int DistanceKm{get;set;}
 }

@@ -12,6 +12,8 @@ public class SeatCabinResponse
     public int[] Layout{get;set;}=Array.Empty<int>();
     /// <summary>Price of one seat in this cabin.</summary>
     public decimal Price{get;set;}
+    /// <summary>Miles the passenger earns for flying this flight in this cabin.</summary>
+    public int Miles{get;set;}
     public List<SeatRowResponse> Rows{get;set;}=new();
 }
 public class SeatMapResponse

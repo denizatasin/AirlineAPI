@@ -21,6 +21,10 @@ public class Ticket
     public string? SeatNumber{get;set;}
     /// <summary>True if the price was taken from the passenger's balance (so cancelling refunds it).</summary>
     public bool BalanceCharged{get;set;}
+    /// <summary>Miles spent on this ticket as a discount (0 = none).</summary>
+    public int MilesUsed{get;set;}
+    /// <summary>True once the miles of this flight were given to the passenger (so they are never given twice).</summary>
+    public bool MilesAwarded{get;set;}
     //foreign keys
     public int PassengerId{get;set;}
     public int FlightId{get;set;}

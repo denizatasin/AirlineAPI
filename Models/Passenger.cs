@@ -14,6 +14,9 @@ public class Passenger
     [Precision(18,2)]
     [ConcurrencyCheck]
     public decimal Balance{get;set;}
+    /// <summary>Miles earned from flights (can be spent as a discount on tickets). ConcurrencyCheck: the same miles cannot be spent twice.</summary>
+    [ConcurrencyCheck]
+    public int Miles{get;set;}
     // Profile information. All nullable because passengers created before this feature have none of it.
     /// <summary>Stored in lower case. Unique when present.</summary>
     [MaxLength(254)]

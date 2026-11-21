@@ -14,6 +14,8 @@ public interface IPassengerService
     Task<bool> SetBalanceAsync(int id, decimal balance);
     Task<PassengerStats?> GetStatsAsync(int id);
     Task<Passenger?> UpdateMyProfileAsync(int id, UpdateMyProfileRequest request);
+    Task<List<MilesTransaction>> GetMilesHistoryAsync(int id);
+    Task<Dictionary<int,string>> GetUsernamesAsync();
 }
 /// <summary>A passenger together with the numbers shown on the profile page.</summary>
 public class PassengerStats
@@ -22,4 +24,6 @@ public class PassengerStats
     public int TotalFlights{get;set;}
     public int ActiveTickets{get;set;}
     public decimal TotalSpent{get;set;}
+    /// <summary>Miles earned from flights in the last 12 months (decides the membership level).</summary>
+    public int StatusMiles{get;set;}
 }

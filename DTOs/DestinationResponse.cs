@@ -6,6 +6,7 @@ public class DestinationResponse
     public string City{get;set;}="";
     public int RangeStart{get;set;}
     public int RangeEnd{get;set;}
+    public int DistanceKm{get;set;}
     
 
 }

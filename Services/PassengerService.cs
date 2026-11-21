@@ -80,6 +80,25 @@ public class PassengerService: IPassengerService
             _logger.LogWarning("Passenger deletion failed. Passenger ID {PassengerId} not found.",id);
             return false;
         }
+        // Tickets are history (and may hold refundable money), so a passenger with tickets cannot be deleted
+        int ticketCount=await _context.Tickets.CountAsync(t=>t.PassengerId==id);
+        if(ticketCount>0)
+        {
+            _logger.LogWarning("Passenger deletion failed. Passenger ID {PassengerId} has {TicketCount} ticket(s).",id,ticketCount);
+            throw new InvalidOperationException($"This passenger has {ticketCount} ticket(s) and cannot be deleted. Delete or cancel the tickets first.");
+        }
+        if(passenger.Balance>0)
+        {
+            throw new InvalidOperationException($"This passenger still has {passenger.Balance:0.##} TL on the balance. Set the balance to 0 before deleting.");
+        }
+        // The login account goes with the passenger (otherwise an orphan account would stay behind)
+        var account=await _context.Users.FirstOrDefaultAsync(u=>u.PassengerId==id);
+        if(account!=null)
+        {
+            _context.Users.Remove(account);
+        }
+        var milesHistory=await _context.MilesTransactions.Where(m=>m.PassengerId==id).ToListAsync();
+        _context.MilesTransactions.RemoveRange(milesHistory);
         _context.Passengers.Remove(passenger);
         await _context.SaveChangesAsync();
 
@@ -144,6 +163,7 @@ public class PassengerService: IPassengerService
         var tickets=await _context.Tickets.Where(t=>t.PassengerId==id && t.Status!=TicketStatus.Cancelled)
             .Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ToListAsync();
         var now=DateTime.Now;
+        int statusMiles=await _context.MilesTransactions.Where(m=>m.PassengerId==id && m.Type=="Earned" && m.CreatedAt>=MembershipTiers.WindowStart()).SumAsync(m=>m.Amount);
         // A ticket counts as flown when its status is Used or its departure time is already in the past
         bool IsFlown(Ticket t)=>t.Status==TicketStatus.Used || t.Flight.Date.ToDateTime(TimeOnly.FromTimeSpan(t.Flight.FlightSchedule.DepartureTime))<now;
         return new PassengerStats
@@ -151,7 +171,8 @@ public class PassengerService: IPassengerService
             Passenger=passenger,
             TotalFlights=tickets.Count(IsFlown),
             ActiveTickets=tickets.Count(t=>!IsFlown(t)),
-            TotalSpent=tickets.Sum(t=>t.PricePaid)
+            TotalSpent=tickets.Sum(t=>t.PricePaid),
+            StatusMiles=statusMiles
         };
     }
     // Passenger edits their own profile. Locked fields (nationality, identity number, birth date) can only be filled while empty.
@@ -187,5 +208,15 @@ public class PassengerService: IPassengerService
         await SaveProfileAsync();
         _logger.LogInformation("Passenger ID {PassengerId} updated their profile.",id);
         return passenger;
+    }
+    // The latest 50 lines of the passenger's miles history, newest first
+    public async Task<List<MilesTransaction>> GetMilesHistoryAsync(int id)
+    {
+        return await _context.MilesTransactions.Where(m=>m.PassengerId==id).OrderByDescending(m=>m.CreatedAt).ThenByDescending(m=>m.Id).Take(50).ToListAsync();
+    }
+    // PassengerId -> login name, for the admin passenger list
+    public async Task<Dictionary<int,string>> GetUsernamesAsync()
+    {
+        return await _context.Users.Where(u=>u.PassengerId!=null).ToDictionaryAsync(u=>u.PassengerId!.Value,u=>u.Username);
     }
 }

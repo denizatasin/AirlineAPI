@@ -16,6 +16,7 @@ public static class TicketMappingExtensions
             PurchaseDate=ticket.PurchaseDate,
             SeatNumber=ticket.SeatNumber,
             PaidFromBalance=ticket.BalanceCharged,
+            MilesUsed=ticket.MilesUsed,
             Passenger=ticket.Passenger.ToResponse(),
             Flight=ticket.Flight.ToResponse()
         };
@@ -28,6 +29,7 @@ public static class TicketMappingExtensions
             FlightId=request.FlightId,
             PricePaid=request.PricePaid,
             SeatNumber=string.IsNullOrWhiteSpace(request.SeatNumber) ? null : request.SeatNumber.Trim().ToUpperInvariant(),
+            MilesUsed=request.MilesToUse,
             PurchaseDate=DateOnly.FromDateTime(DateTime.Now)
         };
     }

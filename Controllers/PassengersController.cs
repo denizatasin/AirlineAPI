@@ -42,6 +42,25 @@ public class PassengersController: ControllerBase
         return Ok(stats.Passenger.ToProfileResponse(stats));
     }
     [Authorize(Roles = "Passenger")]
+    [HttpGet("me/miles")]
+    public async Task<ActionResult<List<MilesTransactionResponse>>> GetMyMiles()
+    {
+        var currentPassengerId = User.GetPassengerId();
+        if (currentPassengerId == null)
+        {
+            return Unauthorized();
+        }
+        var history = await _passengerService.GetMilesHistoryAsync(currentPassengerId.Value);
+        return Ok(history.Select(m => new MilesTransactionResponse
+        {
+            Id = m.Id,
+            Amount = m.Amount,
+            Type = m.Type,
+            Description = m.Description,
+            CreatedAt = m.CreatedAt
+        }).ToList());
+    }
+    [Authorize(Roles = "Passenger")]
     [HttpPut("me")]
     public async Task<ActionResult<PassengerProfileResponse>> UpdateMyProfile(UpdateMyProfileRequest request)
     {
@@ -111,7 +130,8 @@ public class PassengersController: ControllerBase
     public async Task<ActionResult<List<PassengerDetailResponse>>> GetAllPassengers()
     {
         var passengers=await _passengerService.GetAllPassengersAsync();
-        var response=passengers.Select(passenger=>passenger.ToDetailResponse()).ToList();
+        var usernames=await _passengerService.GetUsernamesAsync();
+        var response=passengers.Select(passenger=>passenger.ToDetailResponse(usernames.GetValueOrDefault(passenger.Id))).ToList();
         return Ok(response);
     }
     [Authorize(Roles="Admin")]
@@ -124,7 +144,8 @@ public class PassengersController: ControllerBase
             _logger.LogWarning("Passenger ID {PassengerId} not found.",id);
             return NotFound();
         }
-        return Ok(passenger.ToDetailResponse());
+        var allUsernames=await _passengerService.GetUsernamesAsync();
+        return Ok(passenger.ToDetailResponse(allUsernames.GetValueOrDefault(passenger.Id)));
     }
     [Authorize(Roles="Admin")]
     [HttpPost]

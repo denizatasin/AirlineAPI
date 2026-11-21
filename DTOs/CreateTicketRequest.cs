@@ -13,4 +13,7 @@ public class CreateTicketRequest
     /// <summary>Optional. Leave empty to get a random free seat.</summary>
     [StringLength(4)]
     public string? SeatNumber{get;set;}
+    /// <summary>Optional. Miles to spend as a discount (100 miles = 10 TL, at most 50% of the price).</summary>
+    [Range(0,10000000,ErrorMessage ="Miles must be zero or a positive number.")]
+    public int MilesToUse{get;set;}
 }

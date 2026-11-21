@@ -65,6 +65,9 @@ namespace AirlineAPI.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("DistanceKm")
+                        .HasColumnType("int");
+
                     b.Property<int>("RangeEnd")
                         .HasColumnType("int");
 
@@ -80,6 +83,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 1,
                             City = "New York",
+                            DistanceKm = 8060,
                             RangeEnd = 4,
                             RangeStart = 1
                         },
@@ -87,6 +91,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 2,
                             City = "Los Angeles",
+                            DistanceKm = 11200,
                             RangeEnd = 10,
                             RangeStart = 7
                         },
@@ -94,6 +99,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 3,
                             City = "Washington",
+                            DistanceKm = 8700,
                             RangeEnd = 14,
                             RangeStart = 11
                         },
@@ -101,6 +107,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 4,
                             City = "Tokyo",
+                            DistanceKm = 9000,
                             RangeEnd = 53,
                             RangeStart = 50
                         },
@@ -108,6 +115,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 5,
                             City = "Dubai",
+                            DistanceKm = 3010,
                             RangeEnd = 763,
                             RangeStart = 760
                         },
@@ -115,6 +123,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 6,
                             City = "Berlin",
+                            DistanceKm = 1740,
                             RangeEnd = 1725,
                             RangeStart = 1720
                         },
@@ -122,6 +131,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 7,
                             City = "Paris",
+                            DistanceKm = 2230,
                             RangeEnd = 1827,
                             RangeStart = 1820
                         },
@@ -129,6 +139,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 8,
                             City = "Roma",
+                            DistanceKm = 1370,
                             RangeEnd = 1865,
                             RangeStart = 1860
                         },
@@ -136,6 +147,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 9,
                             City = "Amsterdam",
+                            DistanceKm = 2200,
                             RangeEnd = 1955,
                             RangeStart = 1950
                         },
@@ -143,6 +155,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 10,
                             City = "Londra",
+                            DistanceKm = 2500,
                             RangeEnd = 1987,
                             RangeStart = 1980
                         },
@@ -150,6 +163,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 11,
                             City = "Ankara",
+                            DistanceKm = 350,
                             RangeEnd = 2111,
                             RangeStart = 2100
                         },
@@ -157,6 +171,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 12,
                             City = "Izmir",
+                            DistanceKm = 330,
                             RangeEnd = 2311,
                             RangeStart = 2300
                         },
@@ -164,6 +179,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 13,
                             City = "Antalya",
+                            DistanceKm = 480,
                             RangeEnd = 2413,
                             RangeStart = 2400
                         },
@@ -171,6 +187,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 14,
                             City = "Adana",
+                            DistanceKm = 720,
                             RangeEnd = 2455,
                             RangeStart = 2450
                         },
@@ -178,6 +195,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 15,
                             City = "Bodrum",
+                            DistanceKm = 550,
                             RangeEnd = 2513,
                             RangeStart = 2500
                         },
@@ -185,6 +203,7 @@ namespace AirlineAPI.Migrations
                         {
                             Id = 16,
                             City = "Trabzon",
+                            DistanceKm = 1040,
                             RangeEnd = 2825,
                             RangeStart = 2820
                         });
@@ -259,6 +278,40 @@ namespace AirlineAPI.Migrations
                     b.ToTable("FlightSchedules");
                 });
 
+            modelBuilder.Entity("AirlineAPI.Models.MilesTransaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("PassengerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PassengerId");
+
+                    b.ToTable("MilesTransactions");
+                });
+
             modelBuilder.Entity("AirlineAPI.Models.Passenger", b =>
                 {
                     b.Property<int>("Id")
@@ -295,6 +348,10 @@ namespace AirlineAPI.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("Miles")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
                     b.Property<string>("Nationality")
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)");
@@ -328,6 +385,12 @@ namespace AirlineAPI.Migrations
                         .HasColumnType("bit");
 
                     b.Property<int>("FlightId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("MilesAwarded")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("MilesUsed")
                         .HasColumnType("int");
 
                     b.Property<int>("PassengerId")
@@ -420,6 +483,17 @@ namespace AirlineAPI.Migrations
                     b.Navigation("Aircraft");
 
                     b.Navigation("Destination");
+                });
+
+            modelBuilder.Entity("AirlineAPI.Models.MilesTransaction", b =>
+                {
+                    b.HasOne("AirlineAPI.Models.Passenger", "Passenger")
+                        .WithMany()
+                        .HasForeignKey("PassengerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Passenger");
                 });
 
             modelBuilder.Entity("AirlineAPI.Models.Ticket", b =>

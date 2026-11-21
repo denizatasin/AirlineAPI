@@ -85,6 +85,10 @@ public class AircraftService : IAircraftService
         {
             _logger.LogWarning("Aircraft update failed. Invalid model '{Model}' for manufacturer '{Manufacturer}'", updatedAircraft.Model, updatedAircraft.Manufacturer);
             throw new InvalidOperationException($"Invalid model '{updatedAircraft.Model}' for manufacturer '{updatedAircraft.Manufacturer}'.");
+        } 
+        if(await _context.Aircrafts.AnyAsync(a=>a.TailNumber==updatedAircraft.TailNumber && a.Id!=id))
+        {
+            throw new InvalidOperationException($"Tail number '{updatedAircraft.TailNumber}' already belongs to another aircraft.");
         }
         if(existingAircraft.Model!=updatedAircraft.Model || existingAircraft.Capacity!=updatedAircraft.Capacity)
         {
@@ -102,7 +106,7 @@ public class AircraftService : IAircraftService
                 _logger.LogWarning("Aircraft update failed. Aircraft ID {AircraftId} has upcoming tickets on seats that would not exist anymore: {Seats}", id, string.Join(", ",lostSeats));
                 throw new InvalidOperationException($"This change would remove seats that are already sold on upcoming flights ({string.Join(", ",lostSeats)}). Cancel or move those tickets first.");
             }
-        } 
+        }
         existingAircraft.Manufacturer=updatedAircraft.Manufacturer;
         existingAircraft.Model=updatedAircraft.Model;
         existingAircraft.Capacity=updatedAircraft.Capacity;

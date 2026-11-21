@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Collections.Concurrent;
 using System.Text;
 
 namespace AirlineAPI.Controllers;
@@ -26,6 +27,24 @@ public class AuthController: ControllerBase
         _logger=logger;
         _context=context;
         _configuration=configuration;
+    }
+    // Failed "forgot password" attempts per username (in memory; resets when the API restarts)
+    private static readonly ConcurrentDictionary<string,List<DateTime>> _resetFailures=new();
+    private const int MaxResetFailures=5;
+    private static readonly TimeSpan ResetWindow=TimeSpan.FromMinutes(15);
+    private static bool IsResetLocked(string key)
+    {
+        if(!_resetFailures.TryGetValue(key,out var list))return false;
+        lock(list)
+        {
+            list.RemoveAll(t=>DateTime.UtcNow-t>ResetWindow);
+            return list.Count>=MaxResetFailures;
+        }
+    }
+    private static void RegisterResetFailure(string key)
+    {
+        var list=_resetFailures.GetOrAdd(key,_=>new List<DateTime>());
+        lock(list){list.Add(DateTime.UtcNow);}
     }
     private string GenerateJwtToken(User user)
     {
@@ -119,6 +138,55 @@ public class AuthController: ControllerBase
         await _context.SaveChangesAsync();
         _logger.LogInformation("Admin '{Username}' created by '{Creator}'.",username,User.Identity?.Name);
         return Ok("Admin registered successfully.");
+    }
+    // Admin cannot SEE a password (only a hash is stored). Instead the admin resets it:
+    // a random temporary password is created, shown once, and the old password stops working.
+    [Authorize(Roles="Admin")]
+    [HttpPost("reset-password/{passengerId}")]
+    public async Task<IActionResult>ResetPassword(int passengerId)
+    {
+        var user=await _context.Users.FirstOrDefaultAsync(u=>u.PassengerId==passengerId);
+        if(user==null)
+        {
+            return NotFound($"Passenger {passengerId} has no login account.");
+        }
+        const string alphabet="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+        string temporaryPassword=new string(Enumerable.Range(0,10).Select(_=>alphabet[System.Security.Cryptography.RandomNumberGenerator.GetInt32(alphabet.Length)]).ToArray());
+        user.PasswordHash=_passwordHasher.HashPassword(user,temporaryPassword);
+        await _context.SaveChangesAsync();
+        _logger.LogWarning("Admin '{Admin}' reset the password of user '{Username}'.",User.Identity?.Name,user.Username);
+        return Ok(new{username=user.Username,temporaryPassword});
+    }
+    // "Forgot password": no login needed, but the caller must know username + email + TC/passport of the passenger.
+    // Admin accounts have no passenger record, so they can never use this (an admin resets them by hand).
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult>ForgotPassword(ForgotPasswordRequest request)
+    {
+        string username=request.Username.Trim();
+        string key=username.ToLowerInvariant();
+        if(IsResetLocked(key))
+        {
+            _logger.LogWarning("Password reset blocked for '{Username}': too many failed attempts.",username);
+            return StatusCode(429,"Too many failed attempts. Please try again in 15 minutes or contact support.");
+        }
+        var user=await _context.Users.Include(u=>u.Passenger).FirstOrDefaultAsync(u=>u.Username==username);
+        string? email=PassengerRules.NormalizeEmail(request.Email);
+        string? identity=PassengerRules.NormalizeIdentity(request.IdentityNumber);
+        var p=user?.Passenger;
+        bool match=user!=null&&p!=null&&user.Role==UserRole.Passenger&&
+            p.Email!=null&&p.Email==email&&p.IdentityNumber!=null&&p.IdentityNumber==identity;
+        if(!match)
+        {
+            RegisterResetFailure(key);
+            _logger.LogWarning("Password reset failed for '{Username}': information did not match.",username);
+            // Same message for every reason, so nobody can find out which field was wrong or whether the user exists
+            return BadRequest("The information does not match our records.");
+        }
+        _resetFailures.TryRemove(key,out _);
+        user!.PasswordHash=_passwordHasher.HashPassword(user,request.NewPassword);
+        await _context.SaveChangesAsync();
+        _logger.LogWarning("User '{Username}' reset their password via 'forgot password'.",user.Username);
+        return Ok("Password has been reset. You can log in now.");
     }
     [Authorize]
     [HttpPost("change-password")]

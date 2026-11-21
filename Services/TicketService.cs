@@ -109,10 +109,67 @@ public class TicketService : ITicketService
         }
         return (true,null);
     }
+    private void AddMilesTransaction(int passengerId,int amount,string type,string description)
+    {
+        _context.MilesTransactions.Add(new MilesTransaction
+        {
+            PassengerId=passengerId,
+            Amount=amount,
+            Type=type,
+            Description=description,
+            CreatedAt=DateTime.Now
+        });
+    }
+    // The cash part of a ticket: price minus the discount that was paid with miles
+    private static decimal CashPart(Ticket ticket)
+    {
+        return ticket.PricePaid-MilesRules.Discount(ticket.MilesUsed);
+    }
+    // A ticket that is cancelled/deleted gives back the cash and the miles that were spent on it
+    private void RefundTicket(Ticket ticket,Passenger owner)
+    {
+        owner.Balance+=CashPart(ticket);
+        if(ticket.MilesUsed>0)
+        {
+            owner.Miles+=ticket.MilesUsed;
+            AddMilesTransaction(owner.Id,ticket.MilesUsed,"Refunded",$"Ticket {ticket.TicketNumber} cancelled: miles returned");
+        }
+    }
+    // Gives the miles of a flown ticket to the passenger - exactly once per ticket (MilesAwarded).
+    // The ticket must be loaded with Flight -> FlightSchedule -> Aircraft and Destination.
+    private async Task AwardMilesAsync(Ticket ticket)
+    {
+        if(ticket.MilesAwarded)
+        {
+            return;
+        }
+        var owner=await _context.Passengers.FindAsync(ticket.PassengerId);
+        if(owner==null)
+        {
+            return;
+        }
+        var schedule=ticket.Flight.FlightSchedule;
+        var cabins=SeatLayoutBuilder.Build(schedule.Aircraft.Model,schedule.Aircraft.Capacity);
+        string cabinName=ticket.SeatNumber!=null ? (SeatLayoutBuilder.CabinOfSeat(cabins,ticket.SeatNumber) ?? "Economy") : "Economy";
+        int miles=MilesRules.Earned(schedule.Destination.DistanceKm,cabinName);
+        owner.Miles+=miles;
+        ticket.MilesAwarded=true;
+        AddMilesTransaction(owner.Id,miles,"Earned",$"Flight {schedule.FlightNumber} {schedule.Departure} - {schedule.Arrival} ({cabinName})");
+        // Membership bonus: the level is decided by the flight miles of the last 12 months (before this flight)
+        int statusMiles=await _context.MilesTransactions.Where(m=>m.PassengerId==owner.Id && m.Type=="Earned" && m.CreatedAt>=MembershipTiers.WindowStart()).SumAsync(m=>m.Amount);
+        string tier=MembershipTiers.TierFor(statusMiles);
+        int bonus=(int)Math.Round(miles*MembershipTiers.BonusPercent(tier)/100.0,MidpointRounding.AwayFromZero);
+        if(bonus>0)
+        {
+            owner.Miles+=bonus;
+            AddMilesTransaction(owner.Id,bonus,"Bonus",$"{tier} membership bonus (+{MembershipTiers.BonusPercent(tier)}%) for flight {schedule.FlightNumber}");
+        }
+        _logger.LogInformation("Passenger {PassengerId} earned {Miles} miles for ticket {TicketNumber}.",owner.Id,miles,ticket.TicketNumber);
+    }
     private async Task UpdateExpiredTicketStatusAsync()
     {
         var now=DateTime.Now;
-        var candidateTickets=await _context.Tickets.Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).Where(t=>t.Status==TicketStatus.Booked || t.Status==TicketStatus.CheckedIn).ToListAsync();
+        var candidateTickets=await _context.Tickets.Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft).Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ThenInclude(fs=>fs.Destination).Where(t=>t.Status==TicketStatus.Booked || t.Status==TicketStatus.CheckedIn).ToListAsync();
         bool changed=false;
         foreach(var ticket in candidateTickets)
         {
@@ -122,12 +179,21 @@ public class TicketService : ITicketService
             if(flightDateTime<now)
             {
                 ticket.Status=TicketStatus.Used;
+                await AwardMilesAsync(ticket);
                 changed=true;
             }
         }
         if(changed)
         {
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch(DbUpdateConcurrencyException)
+            {
+                // Someone changed the passenger's miles/balance at the same moment: forget these changes, the next request redoes them
+                _context.ChangeTracker.Clear();
+            }
         }
     }
     private static DateTime GetFlightDateTime(Flight flight)
@@ -177,16 +243,34 @@ public class TicketService : ITicketService
             _logger.LogWarning("Ticket purchase failed due to price validation {Reason}", priceValidation.errorMessage);
             throw new InvalidOperationException(priceValidation.errorMessage);
         }
+        if(ticket.MilesUsed>0 && !chargeBalance)
+        {
+            throw new InvalidOperationException("Miles can only be used by a passenger buying their own ticket.");
+        }
         if(chargeBalance)
         {
             var payer=await _context.Passengers.FindAsync(ticket.PassengerId);
-            if(payer==null || payer.Balance<ticket.PricePaid)
+            if(payer==null)
             {
-                decimal current=payer?.Balance ?? 0;
-                _logger.LogWarning("Ticket purchase failed: insufficient balance for Passenger {PassengerId}",ticket.PassengerId);
-                throw new InvalidOperationException($"Insufficient balance. The ticket costs {ticket.PricePaid:N2} TL but your balance is {current:N2} TL. Please add balance first.");
+                throw new InvalidOperationException("Passenger not found.");
             }
-            payer.Balance-=ticket.PricePaid;
+            if(ticket.MilesUsed>0)
+            {
+                int maxUsable=MilesRules.MaxUsable(ticket.PricePaid,payer.Miles);
+                if(ticket.MilesUsed>maxUsable)
+                {
+                    _logger.LogWarning("Ticket purchase failed: Passenger {PassengerId} tried to use {Miles} miles (max {Max}).",ticket.PassengerId,ticket.MilesUsed,maxUsable);
+                    throw new InvalidOperationException($"You can use at most {maxUsable} miles on this ticket. (You have {payer.Miles} miles, and miles can pay at most {MilesRules.MaxDiscountRatio:P0} of the price.)");
+                }
+            }
+            decimal cash=CashPart(ticket);
+            if(payer.Balance<cash)
+            {
+                _logger.LogWarning("Ticket purchase failed: insufficient balance for Passenger {PassengerId}",ticket.PassengerId);
+                throw new InvalidOperationException($"Insufficient balance. You need to pay {cash:N2} TL but your balance is {payer.Balance:N2} TL. Please add balance first.");
+            }
+            payer.Balance-=cash;
+            payer.Miles-=ticket.MilesUsed;
             ticket.BalanceCharged=true;
         }
         var existingNumbers = await _context.Tickets
@@ -198,6 +282,10 @@ public class TicketService : ITicketService
             : 1;
 
         ticket.TicketNumber = $"235-{DateTime.Now:HHmmss}{nextSerial:D4}";
+        if(ticket.MilesUsed>0)
+        {
+            AddMilesTransaction(ticket.PassengerId,-ticket.MilesUsed,"Spent",$"Ticket {ticket.TicketNumber}: {ticket.MilesUsed} miles used for a {MilesRules.Discount(ticket.MilesUsed):N2} TL discount");
+        }
 
         try
         {
@@ -223,13 +311,20 @@ public class TicketService : ITicketService
     }
     public async Task<bool> UpdateTicketAsync(int id,TicketStatus newStatus)
     {
-        var existingTicket=await _context.Tickets.FirstOrDefaultAsync(t=>t.Id==id);
+        var existingTicket=await _context.Tickets
+            .Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ThenInclude(fs=>fs.Aircraft)
+            .Include(t=>t.Flight).ThenInclude(f=>f.FlightSchedule).ThenInclude(fs=>fs.Destination)
+            .FirstOrDefaultAsync(t=>t.Id==id);
         if(existingTicket==null)
         {
             _logger.LogWarning("Ticket update failed. Ticket ID {TicketId} not found.", id);
             return false;
         }
         var oldStatus=existingTicket.Status;
+        if(oldStatus==TicketStatus.Used && newStatus==TicketStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} has already been used (the flight is done), so it cannot be cancelled.");
+        }
         if(oldStatus==TicketStatus.Cancelled && newStatus!=TicketStatus.Cancelled)
         {
             var reactivation=await ValidateReactivationAsync(existingTicket);
@@ -247,26 +342,41 @@ public class TicketService : ITicketService
             {
                 if(oldStatus!=TicketStatus.Cancelled && newStatus==TicketStatus.Cancelled)
                 {
-                    owner.Balance+=existingTicket.PricePaid;
+                    RefundTicket(existingTicket,owner);
                 }
                 else if(oldStatus==TicketStatus.Cancelled && newStatus!=TicketStatus.Cancelled)
                 {
-                    if(owner.Balance<existingTicket.PricePaid)
+                    decimal cash=CashPart(existingTicket);
+                    if(owner.Balance<cash)
                     {
-                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger's balance ({owner.Balance:N2} TL) is lower than the ticket price ({existingTicket.PricePaid:N2} TL).");
+                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger's balance ({owner.Balance:N2} TL) is lower than the amount to pay ({cash:N2} TL).");
                     }
-                    owner.Balance-=existingTicket.PricePaid;
+                    if(owner.Miles<existingTicket.MilesUsed)
+                    {
+                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger has only {owner.Miles} miles but {existingTicket.MilesUsed} miles were used on it.");
+                    }
+                    owner.Balance-=cash;
+                    if(existingTicket.MilesUsed>0)
+                    {
+                        owner.Miles-=existingTicket.MilesUsed;
+                        AddMilesTransaction(owner.Id,-existingTicket.MilesUsed,"Spent",$"Ticket {existingTicket.TicketNumber} reactivated: miles used again");
+                    }
                 }
             }
         }
         existingTicket.Status=newStatus;
+        // The flight is flown: the passenger earns miles (only once per ticket)
+        if(newStatus==TicketStatus.Used)
+        {
+            await AwardMilesAsync(existingTicket);
+        }
         try
         {
             await _context.SaveChangesAsync();
         }
         catch(DbUpdateConcurrencyException)
         {
-            throw new InvalidOperationException("The passenger's balance changed at the same time. Please try again.");
+            throw new InvalidOperationException("The passenger's balance or miles changed at the same time. Please try again.");
         }
 
         _logger.LogInformation("Ticket ID {TicketId} status changed from {OldStatus} to {NewStatus}", id, oldStatus, newStatus);
@@ -281,12 +391,13 @@ public class TicketService : ITicketService
             return false;
         }
         // Deleting an active ticket that was paid from the balance gives the money back
-        if(ticket.BalanceCharged && ticket.Status!=TicketStatus.Cancelled)
+        // (a ticket that was already flown or cancelled is not refunded)
+        if(ticket.BalanceCharged && (ticket.Status==TicketStatus.Booked || ticket.Status==TicketStatus.CheckedIn))
         {
             var owner=await _context.Passengers.FindAsync(ticket.PassengerId);
             if(owner!=null)
             {
-                owner.Balance+=ticket.PricePaid;
+                RefundTicket(ticket,owner);
             }
         }
         _context.Tickets.Remove(ticket);

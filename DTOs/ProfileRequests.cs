@@ -21,6 +21,20 @@ public class ChangePasswordRequest
     public string NewPassword{get;set;}="";
 }
 
+/// <summary>Self-service password reset: username + email + TC/passport must all match the passenger record.</summary>
+public class ForgotPasswordRequest
+{
+    [Required(ErrorMessage ="Username is required.")]
+    public string Username{get;set;}="";
+    [Required(ErrorMessage ="Email is required.")]
+    public string Email{get;set;}="";
+    [Required(ErrorMessage ="TC kimlik / passport number is required.")]
+    public string IdentityNumber{get;set;}="";
+    [Required(ErrorMessage ="New password is required.")]
+    [StringLength(100,MinimumLength=6,ErrorMessage ="New password must be at least 6 characters.")]
+    public string NewPassword{get;set;}="";
+}
+
 /// <summary>
 /// What a passenger may change on their own profile.
 /// Nationality, IdentityNumber and BirthDate can only be filled in while they are still empty (old accounts);
