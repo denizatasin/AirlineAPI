@@ -9,4 +9,5 @@ public interface ITicketService
     Task<bool> AddTicketAsync(Ticket ticket,bool chargeBalance=false);
     Task<bool> UpdateTicketAsync(int id, TicketStatus newStatus);
     Task<bool> DeleteTicketAsync(int id);
+    Task<bool> CheckInAsync(int id);
 }

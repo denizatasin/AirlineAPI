@@ -48,13 +48,13 @@ public class AircraftService : IAircraftService
         if(!IsValidManufacturer(aircraft.Manufacturer))
         {
             _logger.LogWarning("Aircraft addition failed. Invalid manufacturer: {Manufacturer}", aircraft.Manufacturer);
-            throw new InvalidOperationException($"Invalid manufacturer '{aircraft.Manufacturer}'. Only 'Airbus' and 'Boeing' are accepted."); 
+            throw new InvalidOperationException($"Geçersiz üretici '{aircraft.Manufacturer}'. Sadece 'Airbus' ve 'Boeing' kabul edilir."); 
         }
         if(!IsValidModel(aircraft.Manufacturer,aircraft.Model))
         {
             string validModelsMessage = ValidModelsByManufacturer.TryGetValue(aircraft.Manufacturer, out var validModels)? string.Join(", ", validModels) : "unknown manufacturer";
             _logger.LogWarning("Aircraft addition failed. Invalid model '{Model}' for manufacturer '{Manufacturer}'", aircraft.Model, aircraft.Manufacturer);
-            throw new InvalidOperationException($"Invalid model '{aircraft.Model}' for manufacturer '{aircraft.Manufacturer}'. Proper models for {aircraft.Manufacturer}: {validModelsMessage}");
+            throw new InvalidOperationException($"'{aircraft.Model}' modeli '{aircraft.Manufacturer}' için geçersiz. {aircraft.Manufacturer} için geçerli modeller: {validModelsMessage}");
         }
         bool exists=await _context.Aircrafts.AnyAsync(a=>a.TailNumber==aircraft.TailNumber);
         if(exists)
@@ -79,16 +79,16 @@ public class AircraftService : IAircraftService
         if(!IsValidManufacturer(updatedAircraft.Manufacturer))
         {
             _logger.LogWarning("Aircraft update failed. Invalid manufacturer: {Manufacturer}", updatedAircraft.Manufacturer);
-            throw new InvalidOperationException($"Invalid manufacturer '{updatedAircraft.Manufacturer}'. Only 'Airbus' and 'Boeing' are accepted."); 
+            throw new InvalidOperationException($"Geçersiz üretici '{updatedAircraft.Manufacturer}'. Sadece 'Airbus' ve 'Boeing' kabul edilir."); 
         } 
         if(!IsValidModel(updatedAircraft.Manufacturer,updatedAircraft.Model))
         {
             _logger.LogWarning("Aircraft update failed. Invalid model '{Model}' for manufacturer '{Manufacturer}'", updatedAircraft.Model, updatedAircraft.Manufacturer);
-            throw new InvalidOperationException($"Invalid model '{updatedAircraft.Model}' for manufacturer '{updatedAircraft.Manufacturer}'.");
+            throw new InvalidOperationException($"'{updatedAircraft.Model}' modeli '{updatedAircraft.Manufacturer}' için geçersiz.");
         } 
         if(await _context.Aircrafts.AnyAsync(a=>a.TailNumber==updatedAircraft.TailNumber && a.Id!=id))
         {
-            throw new InvalidOperationException($"Tail number '{updatedAircraft.TailNumber}' already belongs to another aircraft.");
+            throw new InvalidOperationException($"'{updatedAircraft.TailNumber}' kuyruk numarası başka bir uçağa ait.");
         }
         if(existingAircraft.Model!=updatedAircraft.Model || existingAircraft.Capacity!=updatedAircraft.Capacity)
         {
@@ -104,7 +104,7 @@ public class AircraftService : IAircraftService
             if(lostSeats.Count>0)
             {
                 _logger.LogWarning("Aircraft update failed. Aircraft ID {AircraftId} has upcoming tickets on seats that would not exist anymore: {Seats}", id, string.Join(", ",lostSeats));
-                throw new InvalidOperationException($"This change would remove seats that are already sold on upcoming flights ({string.Join(", ",lostSeats)}). Cancel or move those tickets first.");
+                throw new InvalidOperationException($"Bu değişiklik, yaklaşan uçuşlarda satılmış koltukları ortadan kaldırır ({string.Join(", ",lostSeats)}). Önce o biletleri iptal et veya taşı.");
             }
         }
         existingAircraft.Manufacturer=updatedAircraft.Manufacturer;
@@ -129,7 +129,7 @@ public class AircraftService : IAircraftService
         if(isInUse)
         {
             _logger.LogWarning("Aircraft deletion failed. Aircraft ID {AircraftId} is assigned to a flight schedule.", id);
-            throw new InvalidOperationException("This aircraft is assigned to at least 1 flightSchedule and cannot be deleted.");
+            throw new InvalidOperationException("Bu uçak en az bir uçuş tarifesine atanmış, silinemez.");
         }
         _context.Aircrafts.Remove(aircraft);
         await _context.SaveChangesAsync();

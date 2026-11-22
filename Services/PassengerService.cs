@@ -40,11 +40,11 @@ public class PassengerService: IPassengerService
         }
         if(passenger.Email!=null && await _context.Passengers.AnyAsync(p=>p.Email==passenger.Email && p.Id!=ignoreId))
         {
-            throw new InvalidOperationException("This email address is already registered to another passenger.");
+            throw new InvalidOperationException("Bu e-posta adresi başka bir yolcuya ait.");
         }
         if(passenger.IdentityNumber!=null && await _context.Passengers.AnyAsync(p=>p.IdentityNumber==passenger.IdentityNumber && p.Id!=ignoreId))
         {
-            throw new InvalidOperationException("This TC kimlik / passport number is already registered to another passenger.");
+            throw new InvalidOperationException("Bu TC kimlik / pasaport numarası başka bir yolcuya ait.");
         }
     }
     public async Task<bool> AddPassengerAsync(Passenger passenger)
@@ -85,11 +85,11 @@ public class PassengerService: IPassengerService
         if(ticketCount>0)
         {
             _logger.LogWarning("Passenger deletion failed. Passenger ID {PassengerId} has {TicketCount} ticket(s).",id,ticketCount);
-            throw new InvalidOperationException($"This passenger has {ticketCount} ticket(s) and cannot be deleted. Delete or cancel the tickets first.");
+            throw new InvalidOperationException($"Bu yolcunun {ticketCount} bileti var, silinemez. Önce biletleri sil veya iptal et.");
         }
         if(passenger.Balance>0)
         {
-            throw new InvalidOperationException($"This passenger still has {passenger.Balance:0.##} TL on the balance. Set the balance to 0 before deleting.");
+            throw new InvalidOperationException($"Bu yolcunun bakiyesinde {passenger.Balance:0.##} TL var. Silmeden önce bakiyeyi 0'a çek.");
         }
         // The login account goes with the passenger (otherwise an orphan account would stay behind)
         var account=await _context.Users.FirstOrDefaultAsync(u=>u.PassengerId==id);
@@ -138,7 +138,7 @@ public class PassengerService: IPassengerService
         }
         catch(DbUpdateConcurrencyException)
         {
-            throw new InvalidOperationException("The balance was changed by another request at the same time. Please try again.");
+            throw new InvalidOperationException("Bakiye aynı anda başka bir işlemle değişti. Lütfen tekrar dene.");
         }
     }
     // The database unique indexes are the last safety net if two requests use the same value at the same moment
@@ -150,7 +150,7 @@ public class PassengerService: IPassengerService
         }
         catch(DbUpdateException)
         {
-            throw new InvalidOperationException("Email or TC kimlik / passport number is already registered to another passenger.");
+            throw new InvalidOperationException("E-posta veya TC kimlik / pasaport numarası başka bir yolcuya ait.");
         }
     }
     public async Task<PassengerStats?> GetStatsAsync(int id)
@@ -191,17 +191,17 @@ public class PassengerService: IPassengerService
         var identity=PassengerRules.NormalizeIdentity(request.IdentityNumber);
         if(nationality!=null && nationality!=passenger.Nationality)
         {
-            if(passenger.Nationality!=null) throw new InvalidOperationException("Nationality can only be changed by an admin.");
+            if(passenger.Nationality!=null) throw new InvalidOperationException("Uyruğu sadece admin değiştirebilir.");
             passenger.Nationality=nationality;
         }
         if(identity!=null && identity!=passenger.IdentityNumber)
         {
-            if(passenger.IdentityNumber!=null) throw new InvalidOperationException("TC kimlik / passport number can only be changed by an admin.");
+            if(passenger.IdentityNumber!=null) throw new InvalidOperationException("TC kimlik / pasaport numarasını sadece admin değiştirebilir.");
             passenger.IdentityNumber=identity;
         }
         if(request.BirthDate!=null && request.BirthDate!=passenger.BirthDate)
         {
-            if(passenger.BirthDate!=null) throw new InvalidOperationException("Birth date can only be changed by an admin.");
+            if(passenger.BirthDate!=null) throw new InvalidOperationException("Doğum tarihini sadece admin değiştirebilir.");
             passenger.BirthDate=request.BirthDate;
         }
         await CheckProfileAsync(passenger,id);

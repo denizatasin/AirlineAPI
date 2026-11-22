@@ -52,33 +52,33 @@ public static class PassengerRules
     {
         if(p.Email!=null && (p.Email.Length>254 || !EmailPattern.IsMatch(p.Email)))
         {
-            return "Email address is not valid.";
+            return "E-posta adresi geçerli değil.";
         }
         if(p.Phone!=null && !PhonePattern.IsMatch(p.Phone))
         {
-            return "Phone number must contain 10-14 digits (an optional leading + is allowed).";
+            return "Telefon numarası 10-14 rakamdan oluşmalı (başında + olabilir).";
         }
         if(p.Gender!=null && !Genders.Contains(p.Gender))
         {
-            return "Gender must be one of: Female, Male, Other.";
+            return "Cinsiyet şunlardan biri olmalı: Female, Male, Other.";
         }
         if(p.Nationality!=null && p.Nationality.Length>60)
         {
-            return "Nationality is too long.";
+            return "Uyruk çok uzun.";
         }
         if(p.BirthDate!=null)
         {
             var today=DateOnly.FromDateTime(DateTime.Today);
             if(p.BirthDate>today || p.BirthDate<new DateOnly(1900,1,1))
             {
-                return "Birth date is not valid.";
+                return "Doğum tarihi geçerli değil.";
             }
         }
         if(p.IdentityNumber!=null)
         {
             if(p.Nationality==null)
             {
-                return "Nationality is required when an identity number is given.";
+                return "Kimlik numarası girildiğinde uyruk da girilmeli.";
             }
             if(p.Nationality==Turkey)
             {
@@ -89,7 +89,7 @@ public static class PassengerRules
             }
             else if(!PassportPattern.IsMatch(p.IdentityNumber))
             {
-                return "Passport number must be 6-12 letters or digits.";
+                return "Pasaport numarası 6-12 harf veya rakamdan oluşmalı.";
             }
         }
         return null;

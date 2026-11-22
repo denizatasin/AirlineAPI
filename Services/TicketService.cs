@@ -22,7 +22,7 @@ public class TicketService : ITicketService
             availableFlights=availableFlights.Where(f=>GetFlightDateTime(f)>=DateTime.Now).ToList();
             if(!availableFlights.Any())
             {
-                return (false, $"Flight with ID '{flightId}' not found. There are currently no flights available in the system.");
+                return (false, $"'{flightId}' numaralı uçuş bulunamadı. Sistemde henüz uçuş yok.");
             }
             var table = string.Join("\n", availableFlights.Select(f =>$"Id: {f.Id} | Date: {f.Date} | Flight: {f.FlightSchedule.FlightNumber} ({f.FlightSchedule.Departure} -> {f.FlightSchedule.Arrival}) | Departure Time: {f.FlightSchedule.DepartureTime:hh\\:mm}"));
             var errorMessage = $"Flight with Id '{flightId}' not found.\n\nAvailable Flights:\n{table}";
@@ -30,13 +30,13 @@ public class TicketService : ITicketService
         }
         if (GetFlightDateTime(flight) < DateTime.Now)
         {
-            return (false, $"Cannot purchase a ticket for flight {flightId} ({flight.FlightSchedule.FlightNumber} on {flight.Date}) because it has already departed.");
+            return (false, $"{flightId} numaralı uçuş ({flight.FlightSchedule.FlightNumber}, {flight.Date}) kalktığı için bilet alınamaz.");
         }
         int capacity=flight.FlightSchedule.Aircraft.Capacity;
         int soldTickets= await _context.Tickets.CountAsync(t=>t.FlightId==flightId && t.Status!=TicketStatus.Cancelled);
         if(soldTickets>=capacity)
         {
-            return (false, $"Flight {flightId} ({flight.FlightSchedule.FlightNumber} on {flight.Date}) has no available seats. (Capacity: {capacity}/{capacity})");
+            return (false, $"{flightId} numaralı uçuşta ({flight.FlightSchedule.FlightNumber}, {flight.Date}) boş koltuk kalmadı. (Kapasite: {capacity}/{capacity})");
         }
         return (true,null);
     }
@@ -50,7 +50,7 @@ public class TicketService : ITicketService
         var availablePassengers=await _context.Passengers.OrderBy(p=>p.Id).ToListAsync();
         if(!availablePassengers.Any())
         {
-            return (false, $"Passenger with ID '{passengerId}' not found. There are currently no registered passengers in the system.");
+            return (false, $"'{passengerId}' numaralı yolcu bulunamadı. Sistemde henüz kayıtlı yolcu yok.");
         }
         var table = string.Join("\n", availablePassengers.Select(p =>$"Id: {p.Id} | Name: {p.FirstName} {p.LastName} "));
         var errorMessage = $"Passenger with Id '{passengerId}' not found.\n\nAvailable Passengers:\n{table}";
@@ -69,7 +69,7 @@ public class TicketService : ITicketService
         decimal expectedPrice=SeatLayoutBuilder.PriceFor(flight.FlightSchedule.Price,cabinName);
         if(ticket.PricePaid!=expectedPrice)
         {
-            return (false, $"Invalid payment amount. The official price for seat {ticket.SeatNumber} ({cabinName}) on flight {ticket.FlightId} is {expectedPrice:N2} TL, but you entered {ticket.PricePaid:N2} TL.");
+            return (false, $"Ödeme tutarı geçersiz. {ticket.FlightId} numaralı uçuşta {ticket.SeatNumber} koltuğunun ({cabinName}) fiyatı {expectedPrice:N2} TL, ama {ticket.PricePaid:N2} TL girdin.");
         }
         return(true,null);
     }
@@ -97,14 +97,14 @@ public class TicketService : ITicketService
         int activeTickets=await _context.Tickets.CountAsync(t=>t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled);
         if(activeTickets>=capacity)
         {
-            return (false,$"Ticket {ticket.TicketNumber} cannot be reactivated because the flight has no available seats. (Capacity: {capacity}/{capacity})");
+            return (false,$"{ticket.TicketNumber} numaralı bilet yeniden etkinleştirilemez: uçuşta boş koltuk yok. (Kapasite: {capacity}/{capacity})");
         }
         if(ticket.SeatNumber!=null)
         {
             bool seatTaken=await _context.Tickets.AnyAsync(t=>t.Id!=ticket.Id && t.FlightId==ticket.FlightId && t.Status!=TicketStatus.Cancelled && t.SeatNumber==ticket.SeatNumber);
             if(seatTaken)
             {
-                return (false,$"Ticket {ticket.TicketNumber} cannot be reactivated because seat {ticket.SeatNumber} is now taken by another ticket.");
+                return (false,$"{ticket.TicketNumber} numaralı bilet yeniden etkinleştirilemez: {ticket.SeatNumber} koltuğu şu an başka bir biletle dolu.");
             }
         }
         return (true,null);
@@ -245,14 +245,14 @@ public class TicketService : ITicketService
         }
         if(ticket.MilesUsed>0 && !chargeBalance)
         {
-            throw new InvalidOperationException("Miles can only be used by a passenger buying their own ticket.");
+            throw new InvalidOperationException("Mil sadece yolcunun kendi bileti için kullanılabilir.");
         }
         if(chargeBalance)
         {
             var payer=await _context.Passengers.FindAsync(ticket.PassengerId);
             if(payer==null)
             {
-                throw new InvalidOperationException("Passenger not found.");
+                throw new InvalidOperationException("Yolcu bulunamadı.");
             }
             if(ticket.MilesUsed>0)
             {
@@ -260,28 +260,20 @@ public class TicketService : ITicketService
                 if(ticket.MilesUsed>maxUsable)
                 {
                     _logger.LogWarning("Ticket purchase failed: Passenger {PassengerId} tried to use {Miles} miles (max {Max}).",ticket.PassengerId,ticket.MilesUsed,maxUsable);
-                    throw new InvalidOperationException($"You can use at most {maxUsable} miles on this ticket. (You have {payer.Miles} miles, and miles can pay at most {MilesRules.MaxDiscountRatio:P0} of the price.)");
+                    throw new InvalidOperationException($"Bu bilette en fazla {maxUsable} mil kullanabilirsin. (Milin: {payer.Miles}; mil ile fiyatın en fazla {MilesRules.MaxDiscountRatio:P0} kadarı ödenebilir.)");
                 }
             }
             decimal cash=CashPart(ticket);
             if(payer.Balance<cash)
             {
                 _logger.LogWarning("Ticket purchase failed: insufficient balance for Passenger {PassengerId}",ticket.PassengerId);
-                throw new InvalidOperationException($"Insufficient balance. You need to pay {cash:N2} TL but your balance is {payer.Balance:N2} TL. Please add balance first.");
+                throw new InvalidOperationException($"Yetersiz bakiye. {cash:N2} TL ödemen gerekiyor ama bakiyen {payer.Balance:N2} TL. Önce bakiye yükle.");
             }
             payer.Balance-=cash;
             payer.Miles-=ticket.MilesUsed;
             ticket.BalanceCharged=true;
         }
-        var existingNumbers = await _context.Tickets
-            .Select(t => t.TicketNumber)
-            .ToListAsync();
-
-        int nextSerial = existingNumbers.Any()
-            ? existingNumbers.Max(tn => int.Parse(tn.Substring(tn.Length - 4))) + 1
-            : 1;
-
-        ticket.TicketNumber = $"235-{DateTime.Now:HHmmss}{nextSerial:D4}";
+        ticket.TicketNumber = await GenerateTicketNumberAsync();
         if(ticket.MilesUsed>0)
         {
             AddMilesTransaction(ticket.PassengerId,-ticket.MilesUsed,"Spent",$"Ticket {ticket.TicketNumber}: {ticket.MilesUsed} miles used for a {MilesRules.Discount(ticket.MilesUsed):N2} TL discount");
@@ -295,13 +287,13 @@ public class TicketService : ITicketService
         catch(DbUpdateConcurrencyException)
         {
             // The balance was changed by another request while this ticket was being bought
-            throw new InvalidOperationException("Your balance changed while the ticket was being bought. Please try again.");
+            throw new InvalidOperationException("Bilet alınırken bakiyen değişti. Lütfen tekrar dene.");
         }
         catch(DbUpdateException ex)
         {
             // Two people bought the same seat at the same moment: the unique index stopped the second one
             _logger.LogWarning(ex,"Ticket could not be saved for seat {SeatNumber} on Flight {FlightId}.",ticket.SeatNumber,ticket.FlightId);
-            throw new InvalidOperationException($"The ticket could not be saved. Seat '{ticket.SeatNumber}' was most likely taken by another passenger a moment ago. Please try again.");
+            throw new InvalidOperationException($"Bilet kaydedilemedi. '{ticket.SeatNumber}' koltuğu az önce başka bir yolcu tarafından alınmış olabilir. Lütfen tekrar dene.");
         }
 
         _logger.LogInformation("Ticket created succesfully: {TicketNumber} for Passenger {PassengerId} on Flight {FlightId}"
@@ -323,7 +315,7 @@ public class TicketService : ITicketService
         var oldStatus=existingTicket.Status;
         if(oldStatus==TicketStatus.Used && newStatus==TicketStatus.Cancelled)
         {
-            throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} has already been used (the flight is done), so it cannot be cancelled.");
+            throw new InvalidOperationException($"{existingTicket.TicketNumber} numaralı bilet kullanılmış (uçuş tamamlandı), bu yüzden iptal edilemez.");
         }
         if(oldStatus==TicketStatus.Cancelled && newStatus!=TicketStatus.Cancelled)
         {
@@ -349,11 +341,11 @@ public class TicketService : ITicketService
                     decimal cash=CashPart(existingTicket);
                     if(owner.Balance<cash)
                     {
-                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger's balance ({owner.Balance:N2} TL) is lower than the amount to pay ({cash:N2} TL).");
+                        throw new InvalidOperationException($"{existingTicket.TicketNumber} numaralı bilet yeniden etkinleştirilemez: yolcunun bakiyesi ({owner.Balance:N2} TL) ödenecek tutardan ({cash:N2} TL) az.");
                     }
                     if(owner.Miles<existingTicket.MilesUsed)
                     {
-                        throw new InvalidOperationException($"Ticket {existingTicket.TicketNumber} cannot be reactivated because the passenger has only {owner.Miles} miles but {existingTicket.MilesUsed} miles were used on it.");
+                        throw new InvalidOperationException($"{existingTicket.TicketNumber} numaralı bilet yeniden etkinleştirilemez: yolcunun {owner.Miles} mili var ama bu bilette {existingTicket.MilesUsed} mil kullanılmıştı.");
                     }
                     owner.Balance-=cash;
                     if(existingTicket.MilesUsed>0)
@@ -376,10 +368,45 @@ public class TicketService : ITicketService
         }
         catch(DbUpdateConcurrencyException)
         {
-            throw new InvalidOperationException("The passenger's balance or miles changed at the same time. Please try again.");
+            throw new InvalidOperationException("Yolcunun bakiyesi veya mili aynı anda değişti. Lütfen tekrar dene.");
         }
 
         _logger.LogInformation("Ticket ID {TicketId} status changed from {OldStatus} to {NewStatus}", id, oldStatus, newStatus);
+        return true;
+    }
+    // Ticket number: "235-" + time (HHmmss) + 4 random digits, e.g. 235-1432070417.
+    // The old "last 4 digits keep growing" idea broke after 9999 (5 digits, duplicates), so every number is
+    // checked against the database and a new one is drawn if it already exists.
+    private async Task<string> GenerateTicketNumberAsync()
+    {
+        for(int attempt=0;attempt<20;attempt++)
+        {
+            string number=$"235-{DateTime.Now:HHmmss}{Random.Shared.Next(0,10000):D4}";
+            if(!await _context.Tickets.AnyAsync(t=>t.TicketNumber==number))
+            {
+                return number;
+            }
+        }
+        throw new InvalidOperationException("Bilet numarası üretilemedi. Lütfen tekrar dene.");
+    }
+
+    // Online check-in: Booked -> CheckedIn, only inside the 24-hour window before departure
+    public async Task<bool> CheckInAsync(int id)
+    {
+        var ticket=await GetTicketByIdAsync(id);
+        if(ticket==null)
+        {
+            return false;
+        }
+        var reason=CheckInRules.WhyNotNow(ticket,DateTime.Now);
+        if(reason!=null)
+        {
+            _logger.LogWarning("Check-in failed for ticket ID {TicketId}: {Reason}",id,reason);
+            throw new InvalidOperationException(reason);
+        }
+        ticket.Status=TicketStatus.CheckedIn;
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Ticket ID {TicketId} ({TicketNumber}) checked in.",id,ticket.TicketNumber);
         return true;
     }
     public async Task<bool> DeleteTicketAsync(int id)
@@ -407,7 +434,7 @@ public class TicketService : ITicketService
         }
         catch(DbUpdateConcurrencyException)
         {
-            throw new InvalidOperationException("The passenger's balance changed at the same time. Please try again.");
+            throw new InvalidOperationException("Yolcunun bakiyesi aynı anda değişti. Lütfen tekrar dene.");
         }
 
         _logger.LogInformation("Ticket ID {TicketId} (Number:{TicketNumber}) deleted by admin.", id, ticket.TicketNumber);

@@ -100,11 +100,11 @@ public class AuthController: ControllerBase
         }
         if(await _context.Passengers.AnyAsync(p=>p.Email==passenger.Email))
         {
-            return Conflict("This email address is already registered.");
+            return Conflict("Bu e-posta adresi zaten kayıtlı.");
         }
         if(await _context.Passengers.AnyAsync(p=>p.IdentityNumber==passenger.IdentityNumber))
         {
-            return Conflict("This TC kimlik / passport number is already registered.");
+            return Conflict("Bu TC kimlik / pasaport numarası zaten kayıtlı.");
         }
         var user=new User{Username=username,Role=UserRole.Passenger,Passenger=passenger};
         user.PasswordHash=_passwordHasher.HashPassword(user,request.Password);
@@ -117,10 +117,10 @@ public class AuthController: ControllerBase
         catch(DbUpdateException ex)
         {
             _logger.LogWarning(ex,"Registration could not be saved for {Username}.",username);
-            return Conflict("Username, email or TC kimlik / passport number is already registered.");
+            return Conflict("Kullanıcı adı, e-posta veya TC kimlik / pasaport numarası zaten kayıtlı.");
         }
         _logger.LogInformation("User '{Username}' registered successfully as Passenger.",user.Username);
-        return Ok("User registered successfully.");
+        return Ok("Kayıt başarılı.");
     }
     // Only an existing admin can create another admin account
     [Authorize(Roles="Admin")]
@@ -137,7 +137,7 @@ public class AuthController: ControllerBase
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
         _logger.LogInformation("Admin '{Username}' created by '{Creator}'.",username,User.Identity?.Name);
-        return Ok("Admin registered successfully.");
+        return Ok("Admin hesabı oluşturuldu.");
     }
     // Admin cannot SEE a password (only a hash is stored). Instead the admin resets it:
     // a random temporary password is created, shown once, and the old password stops working.
@@ -167,7 +167,7 @@ public class AuthController: ControllerBase
         if(IsResetLocked(key))
         {
             _logger.LogWarning("Password reset blocked for '{Username}': too many failed attempts.",username);
-            return StatusCode(429,"Too many failed attempts. Please try again in 15 minutes or contact support.");
+            return StatusCode(429,"Çok fazla hatalı deneme yaptın. 15 dakika sonra tekrar dene veya destekle iletişime geç.");
         }
         var user=await _context.Users.Include(u=>u.Passenger).FirstOrDefaultAsync(u=>u.Username==username);
         string? email=PassengerRules.NormalizeEmail(request.Email);
@@ -180,13 +180,13 @@ public class AuthController: ControllerBase
             RegisterResetFailure(key);
             _logger.LogWarning("Password reset failed for '{Username}': information did not match.",username);
             // Same message for every reason, so nobody can find out which field was wrong or whether the user exists
-            return BadRequest("The information does not match our records.");
+            return BadRequest("Girdiğin bilgiler kayıtlarımızla eşleşmiyor.");
         }
         _resetFailures.TryRemove(key,out _);
         user!.PasswordHash=_passwordHasher.HashPassword(user,request.NewPassword);
         await _context.SaveChangesAsync();
         _logger.LogWarning("User '{Username}' reset their password via 'forgot password'.",user.Username);
-        return Ok("Password has been reset. You can log in now.");
+        return Ok("Şifre sıfırlandı. Şimdi giriş yapabilirsin.");
     }
     [Authorize]
     [HttpPost("change-password")]
@@ -202,16 +202,16 @@ public class AuthController: ControllerBase
         if(check==PasswordVerificationResult.Failed)
         {
             _logger.LogWarning("Password change failed for '{Username}': wrong current password.",user.Username);
-            return BadRequest("Current password is incorrect.");
+            return BadRequest("Mevcut şifre yanlış.");
         }
         if(request.CurrentPassword==request.NewPassword)
         {
-            return BadRequest("New password must be different from the current password.");
+            return BadRequest("Yeni şifre mevcut şifreyle aynı olamaz.");
         }
         user.PasswordHash=_passwordHasher.HashPassword(user,request.NewPassword);
         await _context.SaveChangesAsync();
         _logger.LogInformation("User '{Username}' changed their password.",user.Username);
-        return Ok("Password changed successfully.");
+        return Ok("Şifre değiştirildi.");
     }
     [HttpPost("login")]
     public async Task<IActionResult>Login(LoginRequest request)
@@ -220,13 +220,13 @@ public class AuthController: ControllerBase
         if(user==null)
         {
             _logger.LogWarning("Login failed. User '{Username}' not found.",request.Username);
-            return Unauthorized("Invalid username or password.");
+            return Unauthorized("Kullanıcı adı veya şifre hatalı.");
         }
         var result=_passwordHasher.VerifyHashedPassword(user, user.PasswordHash,request.Password);
         if(result==PasswordVerificationResult.Failed)
         {
             _logger.LogWarning("Login failed. Incorrect passfor for user '{Username}'.",request.Username);
-            return Unauthorized("Invalid username or password.");
+            return Unauthorized("Kullanıcı adı veya şifre hatalı.");
         }
         var token = GenerateJwtToken(user);
         _logger.LogInformation("User '{Username}' logined successfully.",user.Username);

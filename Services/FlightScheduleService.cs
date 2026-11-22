@@ -136,12 +136,12 @@ public class FlightScheduleService : IFlightScheduleService
         if(!IsValidDuration(schedule.Duration))
         {
             _logger.LogWarning("FlightSchedule creation failed. Invalid duration: {Duration}",schedule.Duration);
-            throw new InvalidOperationException($"Flight duration is {schedule.Duration}. It must be at least 30 minutes.");
+            throw new InvalidOperationException($"Uçuş süresi {schedule.Duration}. En az 30 dakika olmalı.");
         }
         if(!IsValidPrice(schedule.Price))
         {
             _logger.LogWarning("FlightSchedule creation failed. Invalid price: {Price}",schedule.Price);
-            throw new InvalidOperationException($"Price is {schedule.Price}. It must be between 1000 and 50000.");
+            throw new InvalidOperationException($"Fiyat {schedule.Price}. 1000 ile 50000 arasında olmalı.");
         }
         
         _context.FlightSchedules.Add(schedule);
@@ -179,12 +179,12 @@ public class FlightScheduleService : IFlightScheduleService
         if(!IsValidDuration(updatedFlightSchedule.Duration))
         {
             _logger.LogWarning("FlightSchedule update failed. Invalid duration: {Duration}",updatedFlightSchedule.Duration);
-            throw new InvalidOperationException($"Flight duration {updatedFlightSchedule.Duration} must be at least 30 minutes.");
+            throw new InvalidOperationException($"Uçuş süresi {updatedFlightSchedule.Duration} en az 30 dakika olmalı.");
         }
         if(!IsValidPrice(updatedFlightSchedule.Price))
         {
             _logger.LogWarning("FlightSchedule update failed. Invalid price: {Price}",updatedFlightSchedule.Price);
-            throw new InvalidOperationException($"Price {updatedFlightSchedule.Price} must be between 1000 and 50000.");
+            throw new InvalidOperationException($"Fiyat {updatedFlightSchedule.Price} 1000 ile 50000 arasında olmalı.");
         }
 
         // Changing the route or the aircraft would break tickets that are already sold for upcoming flights
@@ -196,7 +196,7 @@ public class FlightScheduleService : IFlightScheduleService
             var upcoming=_context.Tickets.Where(t=>t.Flight.FlightScheduleId==id && t.Flight.Date>=today && (t.Status==TicketStatus.Booked || t.Status==TicketStatus.CheckedIn));
             if(routeChanged && await upcoming.AnyAsync())
             {
-                throw new InvalidOperationException("The route cannot be changed while upcoming flights of this schedule have active tickets. Cancel those tickets first.");
+                throw new InvalidOperationException("Bu tarifenin yaklaşan uçuşlarında aktif bilet varken rota değiştirilemez. Önce o biletleri iptal et.");
             }
             if(aircraftChanged)
             {
@@ -206,7 +206,7 @@ public class FlightScheduleService : IFlightScheduleService
                 var lost=held.Where(s=>!newSeats.Contains(s)).ToList();
                 if(lost.Count>0)
                 {
-                    throw new InvalidOperationException($"The new aircraft does not have seats that are already sold on upcoming flights ({string.Join(", ",lost)}). Cancel or move those tickets first.");
+                    throw new InvalidOperationException($"Yeni uçakta, yaklaşan uçuşlarda satılmış koltuklar yok ({string.Join(", ",lost)}). Önce o biletleri iptal et veya taşı.");
                 }
             }
         }
@@ -238,7 +238,7 @@ public class FlightScheduleService : IFlightScheduleService
         if(ticketCount>0)
         {
             _logger.LogWarning("FlightSchedule deletion failed. Schedule ID {FlightScheduleId} has {TicketCount} ticket(s).",id,ticketCount);
-            throw new InvalidOperationException($"This flight schedule cannot be deleted because {ticketCount} ticket(s) exist on its flights.");
+            throw new InvalidOperationException($"Bu uçuş tarifesi silinemez: uçuşlarında {ticketCount} bilet var.");
         }
         var emptyFlights=await _context.Flights.Where(f=>f.FlightScheduleId==id).ToListAsync();
         _context.Flights.RemoveRange(emptyFlights);

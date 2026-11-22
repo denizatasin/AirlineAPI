@@ -116,6 +116,32 @@ public class TicketsController:ControllerBase
         }
         
     }
+    // Passengers check in their own ticket (admins may do it for anyone)
+    [Authorize]
+    [HttpPost("{id}/check-in")]
+    public async Task<IActionResult> CheckIn(int id)
+    {
+        var ticket=await _ticketService.GetTicketByIdAsync(id);
+        if(ticket==null)
+        {
+            return NotFound();
+        }
+        if(!User.isAdmin() && !User.OwnsPassenger(ticket.PassengerId))
+        {
+            _logger.LogWarning("Unauthorized check-in attempt for Ticket ID {TicketId}",id);
+            return StatusCode(403,"Sadece kendi biletinin check-in'ini yapabilirsin.");
+        }
+        try
+        {
+            await _ticketService.CheckInAsync(id);
+            var updated=await _ticketService.GetTicketByIdAsync(id);
+            return Ok(updated!.ToResponse());
+        }
+        catch(InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
     [Authorize(Roles="Admin")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteTicket(int id)

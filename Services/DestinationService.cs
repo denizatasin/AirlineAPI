@@ -18,13 +18,13 @@ public class DestinationService:IDestinationService
         errorMessage=null;
         if(rangeStart>=rangeEnd)
         {
-            errorMessage=$"Range start ({rangeStart}) must be less than range end ({rangeEnd}).";
+            errorMessage=$"Aralık başlangıcı ({rangeStart}) bitişten ({rangeEnd}) küçük olmalı.";
             return false;
         }
         int numbers=rangeStart-rangeEnd+1;
         if(numbers%2!=0)
         {
-            errorMessage=$"The range {rangeStart}-{rangeEnd} must contain an even number of flights so every departure has a return flight.";
+            errorMessage=$"{rangeStart}-{rangeEnd} aralığı çift sayıda uçuş içermeli ki her gidiş uçuşunun bir dönüşü olsun.";
             return false;
         }        
         return true;
@@ -93,7 +93,7 @@ public class DestinationService:IDestinationService
         if(isInUse)
         {
             _logger.LogWarning("Destination deletion failed. Destination ID {DestinationId} is in use by flight schedules.", id);
-            throw new InvalidOperationException("This destination is assigned to one or more flight schedules and cannot be deleted.");
+            throw new InvalidOperationException("Bu şehir bir veya daha fazla uçuş tarifesine atanmış, silinemez.");
         }
         _context.Destinations.Remove(destination);
         await _context.SaveChangesAsync();

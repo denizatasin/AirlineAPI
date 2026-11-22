@@ -33,7 +33,7 @@ public class FlightService : IFlightService
         var availableSchedules=await _context.FlightSchedules.Include(fs=>fs.Aircraft).OrderBy(s => s.Id).ToListAsync();
         if(!availableSchedules.Any())
         {
-            return(false,$"Flight schedule with Id {flightScheduleId} not found. There are currently no available flight schedules in the system.");
+            return(false,$"{flightScheduleId} numaralı uçuş tarifesi bulunamadı. Sistemde henüz tarife yok.");
         }
         var table = string.Join("\n", availableSchedules.Select(s => $"Id: {s.Id} | Route: {s.Departure} -> {s.Arrival} | Time: {s.DepartureTime:hh\\:mm} - {s.ArrivalTime:hh\\:mm} | Aircraft: {s.Aircraft?.Model ?? "N/A"} (AircraftId: {s.AircraftId})"));
         var errorMessage = $"FlightSchedule with Id '{flightScheduleId}' not found.\n\nAvailable Flight Schedules:\n{table}";
@@ -72,7 +72,7 @@ public class FlightService : IFlightService
         if(!IsValidFlightDate(flight.Date))
         {
             _logger.LogWarning("Flight creation failed. Cannot create a flight with past date: {Date}",flight.Date);
-            throw new InvalidOperationException($"Cannot create a flight with a past date ({flight.Date}). Date must be today or later.");
+            throw new InvalidOperationException($"Geçmiş tarihli uçuş oluşturulamaz ({flight.Date}). Tarih bugün veya sonrası olmalı.");
         }
         _context.Flights.Add(flight);
         await _context.SaveChangesAsync();
@@ -97,7 +97,7 @@ public class FlightService : IFlightService
         if(!IsValidFlightDate(newDate))
         {
             _logger.LogWarning("Flight update failed. Invalid past date: {Date}",newDate);
-            throw new InvalidOperationException($"Cannot update a flight with a past date ({newDate}). Date must be today or later.");
+            throw new InvalidOperationException($"Uçuş geçmiş bir tarihe güncellenemez ({newDate}). Tarih bugün veya sonrası olmalı.");
         }
         var oldDate=existingFlight.Date;
         existingFlight.Date=newDate;
@@ -158,7 +158,7 @@ public class FlightService : IFlightService
         if(ticketCount>0)
         {
             _logger.LogWarning("Flight deletion failed. Flight ID {FlightId} has {TicketCount} ticket(s).",id,ticketCount);
-            throw new InvalidOperationException($"Flight with ID {id} cannot be deleted because {ticketCount} ticket(s) exist for it.");
+            throw new InvalidOperationException($"{id} numaralı uçuş silinemez: bu uçuşa ait {ticketCount} bilet var.");
         }
         _context.Flights.Remove(flight);
         await _context.SaveChangesAsync();
